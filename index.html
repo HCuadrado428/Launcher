@@ -4,54 +4,543 @@
     <meta charset="UTF-8">
     <title>Mi Launcher de Minecraft</title>
     <style>
-        body { 
-            background: #2c3e50; 
-            color: white; 
-            font-family: sans-serif; 
-            text-align: center; 
-            padding-top: 50px; 
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700&display=swap');
+
+        * { box-sizing: border-box; }
+
+        :root {
+            --bg-1: #0f151c;
+            --bg-2: #1b2530;
+            --panel: #1e293280;
+            --accent: #6abe30;
+            --accent-dark: #4f9622;
+            --danger: #d64545;
+            --text-dim: #9aa7b5;
         }
-        input { 
-            padding: 10px; 
-            font-size: 16px; 
-            border-radius: 5px; 
-            border: none; 
-            margin-bottom: 20px; 
-            text-align: center; 
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            color: #eef2f5;
+            background:
+                radial-gradient(circle at 20% 15%, #2b3a2b55, transparent 40%),
+                radial-gradient(circle at 80% 85%, #2b3a4a55, transparent 40%),
+                linear-gradient(160deg, var(--bg-1), var(--bg-2));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
         }
-        button { 
-            padding: 10px 20px; 
-            font-size: 16px; 
-            background: #27ae60; 
-            color: white; 
-            border: none; 
-            border-radius: 5px; 
-            cursor: pointer; 
+
+        h1.title {
+            font-family: 'Press Start 2P', monospace;
+            font-size: 20px;
+            text-align: center;
+            margin: 0 0 30px 0;
+            color: var(--accent);
+            text-shadow: 3px 3px 0 #00000055;
+            letter-spacing: 1px;
         }
-        button:hover { 
-            background: #219653; 
+
+        .card {
+            background: linear-gradient(180deg, #202b36cc, #171f27cc);
+            border: 1px solid #33404d;
+            border-radius: 18px;
+            box-shadow: 0 20px 50px #00000066;
+            padding: 34px;
+            width: 420px;
+            backdrop-filter: blur(6px);
         }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        /* --- Login screen --- */
+        .login-option {
+            border: 1px solid #33404d;
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 16px;
+            background: #ffffff08;
+            transition: border-color .15s, background .15s;
+        }
+        .login-option:hover {
+            border-color: var(--accent);
+            background: #ffffff10;
+        }
+        .login-option h3 {
+            margin: 0 0 6px 0;
+            font-size: 15px;
+        }
+        .login-option p {
+            margin: 0 0 14px 0;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 11px 12px;
+            font-size: 14px;
+            border-radius: 8px;
+            border: 1px solid #33404d;
+            background: #0f151c;
+            color: white;
+            margin-bottom: 10px;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        button {
+            padding: 11px 18px;
+            font-size: 14px;
+            font-weight: 600;
+            background: var(--accent);
+            color: #0f1a08;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            transition: background .15s, transform .1s;
+        }
+        button:hover { background: var(--accent-dark); }
+        button:active { transform: scale(0.98); }
         button:disabled {
-            background: #7f8c8d;
+            background: #4a5560;
+            color: #97a2ac;
             cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #33404d;
+            color: #dbe3ea;
+        }
+        button.secondary:hover { background: #3d4d5c; }
+
+        button.danger {
+            background: var(--danger);
+            color: white;
+        }
+        button.danger:hover { background: #b93636; }
+
+        .ms-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        /* --- Main screen --- */
+        .account-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #ffffff08;
+            border: 1px solid #33404d;
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 22px;
+        }
+        .avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--accent), #3a7a17);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            color: #0f1a08;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        .avatar img { width: 100%; height: 100%; image-rendering: pixelated; }
+        .account-info { flex: 1; min-width: 0; }
+        .account-name { font-weight: 600; font-size: 14px; }
+        .account-type { font-size: 12px; color: var(--text-dim); }
+        .switch-link {
+            width: auto;
+            background: none;
+            color: var(--text-dim);
+            font-size: 12px;
+            padding: 4px 8px;
+            text-decoration: underline;
+        }
+        .switch-link:hover { color: white; background: none; }
+
+        .field { margin-bottom: 18px; }
+        label {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        .java-row { display: flex; gap: 8px; }
+        .java-row input { font-size: 12px; }
+        .java-row button { width: auto; white-space: nowrap; font-size: 12px; padding: 10px 12px; }
+        #javaHint { font-size: 11px; color: #7a8794; margin-top: 6px; min-height: 14px; }
+
+        .ram-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="range"] {
+            flex: 1;
+            accent-color: var(--accent);
+        }
+        .ram-value {
+            font-size: 13px;
+            color: var(--text-dim);
+            width: 80px;
+            text-align: right;
+        }
+
+        .play-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        #progressWrap {
+            margin-top: 20px;
+            display: none;
+        }
+        progress { display: none; } /* ya no se usa, sustituido por .progress-track */
+        .progress-track {
+            width: 100%;
+            height: 14px;
+            border-radius: 8px;
+            background: #0f151c;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 8px;
+            background: linear-gradient(90deg, var(--accent), #8fd452);
+            transition: width .35s ease-out;
+        }
+        #progressLabel { margin-top: 8px; font-size: 12px; color: var(--text-dim); text-align: center; }
+
+        /* --- Toasts --- */
+        #toastWrap {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 100;
+        }
+        .toast {
+            padding: 12px 18px;
+            border-radius: 10px;
+            font-size: 13px;
+            color: white;
+            box-shadow: 0 8px 20px #00000055;
+            animation: toast-in .2s ease-out;
+        }
+        .toast.error { background: var(--danger); }
+        .toast.info { background: #2e3d4d; }
+        @keyframes toast-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
 <body>
-    <h1>Mi Launcher de Minecraft</h1>
-    <p>Ingresa tu nombre de usuario para empezar:</p>
-    <input type="text" id="username" placeholder="Tu Nombre de Usuario" value="Jugador"><br>
-    <button id="playBtn">Iniciar Juego</button>
+    <div>
+        <h1 class="title">⛏ MI LAUNCHER</h1>
+
+        <!-- PANTALLA DE LOGIN -->
+        <div id="loginScreen" class="screen active card">
+            <div class="login-option">
+                <h3>🧑 Cuenta no premium</h3>
+                <p>Modo offline, para testear o jugar sin cuenta de Mojang/Microsoft.</p>
+                <input type="text" id="offlineUsername" placeholder="Tu nombre de usuario" value="Jugador">
+                <button id="offlineLoginBtn">Continuar sin cuenta premium</button>
+            </div>
+
+            <div class="login-option">
+                <h3>🪟 Cuenta Microsoft</h3>
+                <p>Inicia sesión con tu cuenta oficial de Minecraft/Xbox.</p>
+                <button id="msLoginBtn" class="ms-btn secondary">Iniciar sesión con Microsoft</button>
+            </div>
+        </div>
+
+        <!-- PANTALLA PRINCIPAL -->
+        <div id="mainScreen" class="screen card">
+            <div class="account-bar">
+                <div class="avatar" id="avatar">?</div>
+                <div class="account-info">
+                    <div class="account-name" id="accountName">-</div>
+                    <div class="account-type" id="accountType">-</div>
+                </div>
+                <button class="switch-link" id="switchAccountBtn">Cambiar cuenta</button>
+            </div>
+
+            <div class="field">
+                <label for="javaPath">Ruta de Java (java.exe)</label>
+                <div class="java-row">
+                    <input type="text" id="javaPath" placeholder="Se detecta automáticamente si lo dejas vacío">
+                    <button class="secondary" id="detectBtn">Detectar</button>
+                    <button class="secondary" id="browseBtn">Buscar...</button>
+                </div>
+                <div id="javaHint"></div>
+            </div>
+
+            <div class="field">
+                <label for="ramSlider">Memoria RAM asignada</label>
+                <div class="ram-row">
+                    <input type="range" id="ramSlider" min="1" max="16" step="1" value="4">
+                    <span class="ram-value" id="ramValue">4 GB</span>
+                </div>
+            </div>
+
+            <div class="field">
+                <label>Versión de Minecraft</label>
+                <div id="versionLabel" style="font-size: 13px; color: var(--text-dim);">Consultando última versión...</div>
+            </div>
+
+            <div class="play-row">
+                <button id="playBtn">Iniciar Juego</button>
+                <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;">Detener</button>
+            </div>
+
+            <div id="progressWrap">
+                <div class="progress-track">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div id="progressLabel">Preparando...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toastWrap"></div>
 
     <script>
-        const { ipcRenderer } = require('electron');
-        
-        document.getElementById('playBtn').addEventListener('click', () => {
-            const username = document.getElementById('username').value;
-            // Envía la orden al archivo main.js
-            ipcRenderer.send('launch-game', username);
-            document.getElementById('playBtn').innerText = "Iniciando juego...";
-            document.getElementById('playBtn').disabled = true;
+        const loginScreen = document.getElementById('loginScreen');
+        const mainScreen = document.getElementById('mainScreen');
+
+        const offlineUsername = document.getElementById('offlineUsername');
+        const offlineLoginBtn = document.getElementById('offlineLoginBtn');
+        const msLoginBtn = document.getElementById('msLoginBtn');
+
+        const avatar = document.getElementById('avatar');
+        const accountName = document.getElementById('accountName');
+        const accountType = document.getElementById('accountType');
+        const switchAccountBtn = document.getElementById('switchAccountBtn');
+
+        const javaPathInput = document.getElementById('javaPath');
+        const browseBtn = document.getElementById('browseBtn');
+        const detectBtn = document.getElementById('detectBtn');
+        const javaHint = document.getElementById('javaHint');
+
+        const ramSlider = document.getElementById('ramSlider');
+        const ramValue = document.getElementById('ramValue');
+        const versionLabel = document.getElementById('versionLabel');
+
+        const playBtn = document.getElementById('playBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const progressWrap = document.getElementById('progressWrap');
+        const progressFill = document.getElementById('progressFill');
+        const progressLabel = document.getElementById('progressLabel');
+        const toastWrap = document.getElementById('toastWrap');
+
+        function showToast(message, type) {
+            const el = document.createElement('div');
+            el.className = 'toast ' + (type || 'info');
+            el.innerText = message;
+            toastWrap.appendChild(el);
+            setTimeout(() => el.remove(), 5000);
+        }
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function renderAccount(account) {
+            if (!account) return;
+            accountName.innerText = account.username || '???';
+            if (account.type === 'microsoft') {
+                accountType.innerText = 'Cuenta Microsoft';
+                if (account.uuid) {
+                    avatar.innerHTML = `<img src="https://crafatar.com/avatars/${account.uuid}?size=42&overlay" onerror="this.parentElement.innerText='${(account.username || '?')[0].toUpperCase()}'">`;
+                } else {
+                    avatar.innerText = (account.username || '?')[0].toUpperCase();
+                }
+            } else {
+                accountType.innerText = 'Cuenta no premium (offline)';
+                avatar.innerHTML = '';
+                avatar.innerText = (account.username || '?')[0].toUpperCase();
+            }
+        }
+
+        // --- Login ---
+
+        offlineLoginBtn.addEventListener('click', async () => {
+            const username = offlineUsername.value.trim() || 'Jugador';
+            const account = await window.electronAPI.loginOffline(username);
+            renderAccount(account);
+            showScreen('mainScreen');
+        });
+
+        msLoginBtn.addEventListener('click', async () => {
+            msLoginBtn.disabled = true;
+            msLoginBtn.innerText = 'Abriendo ventana de login...';
+            const result = await window.electronAPI.loginMicrosoft();
+            msLoginBtn.disabled = false;
+            msLoginBtn.innerText = 'Iniciar sesión con Microsoft';
+
+            if (result && result.success) {
+                renderAccount(result.account);
+                showScreen('mainScreen');
+                showToast('Sesión iniciada como ' + result.account.username, 'info');
+            } else {
+                showToast((result && result.message) || 'No se pudo iniciar sesión con Microsoft.', 'error');
+            }
+        });
+
+        switchAccountBtn.addEventListener('click', async () => {
+            await window.electronAPI.logout();
+            showScreen('loginScreen');
+        });
+
+        // --- Java ---
+
+        async function runAutoDetect(silent) {
+            if (!silent) javaHint.innerText = 'Buscando instalaciones de Java...';
+            const detected = await window.electronAPI.autoDetectJava();
+            if (detected) {
+                javaPathInput.value = detected;
+                javaHint.innerText = 'Detectado: ' + detected;
+            } else if (!silent) {
+                javaHint.innerText = 'No se encontró ninguna instalación de Java en este sistema.';
+            }
+            return detected;
+        }
+
+        detectBtn.addEventListener('click', () => runAutoDetect(false));
+
+        browseBtn.addEventListener('click', async () => {
+            const selected = await window.electronAPI.selectJavaPath();
+            if (selected) {
+                javaPathInput.value = selected;
+                javaHint.innerText = '';
+            }
+        });
+
+        // --- RAM slider ---
+
+        ramSlider.addEventListener('input', () => {
+            ramValue.innerText = ramSlider.value + ' GB';
+        });
+
+        // --- Carga inicial ---
+
+        window.electronAPI.getConfig().then(async (cfg) => {
+            if (cfg && cfg.account) {
+                renderAccount(cfg.account);
+                showScreen('mainScreen');
+            } else {
+                showScreen('loginScreen');
+            }
+
+            if (cfg && cfg.javaPath) {
+                javaPathInput.value = cfg.javaPath;
+            } else {
+                await runAutoDetect(true);
+            }
+
+            if (cfg && cfg.memory && cfg.memory.max) {
+                const gb = parseInt(cfg.memory.max, 10);
+                if (!isNaN(gb)) {
+                    ramSlider.value = gb;
+                    ramValue.innerText = gb + ' GB';
+                }
+            }
+
+            window.electronAPI.getLatestVersion().then((version) => {
+                versionLabel.innerText = version + ' (última release)';
+            });
+        });
+
+        // --- Jugar / detener ---
+
+        playBtn.addEventListener('click', () => {
+            const javaPath = javaPathInput.value;
+            const maxGb = parseInt(ramSlider.value, 10);
+            const minGb = Math.max(1, Math.round(maxGb / 2));
+
+            window.electronAPI.launchGame({
+                javaPath,
+                memory: { max: maxGb + 'G', min: minGb + 'G' }
+            });
+
+            playBtn.innerText = 'Iniciando juego...';
+            playBtn.disabled = true;
+            stopBtn.disabled = false;
+
+            progressWrap.style.display = 'block';
+            progressFill.style.width = '0%';
+            progressLabel.innerText = 'Preparando...';
+        });
+
+        stopBtn.addEventListener('click', () => {
+            window.electronAPI.stopGame();
+        });
+
+        function resetToIdle() {
+            playBtn.innerText = 'Iniciar Juego';
+            playBtn.disabled = false;
+            stopBtn.disabled = true;
+            progressWrap.style.display = 'none';
+        }
+
+        window.electronAPI.onGameStatus((data) => {
+            if (data.type === 'version-selected') {
+                versionLabel.innerText = data.version + ' (última release)';
+            } else if (data.type === 'error') {
+                showToast(data.message, 'error');
+                resetToIdle();
+            } else if (data.type === 'launched') {
+                playBtn.innerText = 'Juego iniciado';
+                progressWrap.style.display = 'none';
+            } else if (data.type === 'closed' || data.type === 'stopped') {
+                resetToIdle();
+            }
+        });
+
+        // minecraft-launcher-core emite dos tipos de evento de progreso
+        // distintos y NO hay que tratarlos igual:
+        //  - "progress" trae { type, task, total } -> progreso ESTABLE por
+        //    categoría (ej. "van descargados 40 de 120 assets"). Siempre
+        //    avanza hacia adelante. Esta es la que mueve la barra.
+        //  - "download-status" trae { name, type, current, total } ->
+        //    progreso de UN archivo individual (bytes de ese archivo).
+        //    Se resetea a 0 cada vez que empieza un archivo nuevo, así que
+        //    si la usamos para mover la barra, esta salta constantemente
+        //    hacia atrás (el "bugueo" que se veía). Solo la usamos para
+        //    mostrar qué archivo se está descargando ahora mismo.
+        window.electronAPI.onGameProgress((data) => {
+            progressWrap.style.display = 'block';
+
+            if (data.task !== undefined) {
+                const total = data.total || 0;
+                const percent = total > 0 ? Math.min(100, Math.round((data.task / total) * 100)) : 0;
+                progressFill.style.width = percent + '%';
+                progressLabel.innerText = `${data.type || 'Preparando'}... ${percent}%`;
+            } else if (data.current !== undefined) {
+                const fileName = data.name ? data.name.split(/[\\/]/).pop() : (data.type || 'archivo');
+                progressLabel.innerText = `Descargando ${fileName}...`;
+            }
         });
     </script>
 </body>

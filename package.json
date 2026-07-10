@@ -6,7 +6,11 @@
     "start": "electron ."
   },
   "dependencies": {
-    "electron": "^31.0.0",
-    "minecraft-launcher-core": "^3.2.3"
+    "electron": "^43.1.0",
+    "minecraft-launcher-core": "^3.2.3",
+    "msmc": "^4.1.0"
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
   }
 }
