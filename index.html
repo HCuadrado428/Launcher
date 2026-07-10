@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Mi Launcher de Minecraft</title>
+    <style>
+        body { 
+            background: #2c3e50; 
+            color: white; 
+            font-family: sans-serif; 
+            text-align: center; 
+            padding-top: 50px; 
+        }
+        input { 
+            padding: 10px; 
+            font-size: 16px; 
+            border-radius: 5px; 
+            border: none; 
+            margin-bottom: 20px; 
+            text-align: center; 
+        }
+        button { 
+            padding: 10px 20px; 
+            font-size: 16px; 
+            background: #27ae60; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+        }
+        button:hover { 
+            background: #219653; 
+        }
+        button:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mi Launcher de Minecraft</h1>
+    <p>Ingresa tu nombre de usuario para empezar:</p>
+    <input type="text" id="username" placeholder="Tu Nombre de Usuario" value="Jugador"><br>
+    <button id="playBtn">Iniciar Juego</button>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        
+        document.getElementById('playBtn').addEventListener('click', () => {
+            const username = document.getElementById('username').value;
+            // Envía la orden al archivo main.js
+            ipcRenderer.send('launch-game', username);
+            document.getElementById('playBtn').innerText = "Iniciando juego...";
+            document.getElementById('playBtn').disabled = true;
+        });
+    </script>
+</body>
+</html>
