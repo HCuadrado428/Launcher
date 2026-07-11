@@ -246,3 +246,91 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* --- Modpacks --- */
+.modpack-field { margin-top: -4px; }
+.active-modpack-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #ffffff08;
+    border: 1px solid #33404d;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.active-modpack-row button { width: auto; white-space: nowrap; font-size: 12px; padding: 8px 12px; }
+
+.modpacks-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+.back-link { padding: 0; font-size: 13px; }
+
+.modpack-list { display: flex; flex-direction: column; gap: 8px; }
+.modpack-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #ffffff08;
+    border: 1px solid #33404d;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.modpack-item-info { min-width: 0; }
+.modpack-item-name { font-weight: 600; font-size: 14px; }
+.modpack-item-meta { font-size: 12px; color: var(--text-dim); }
+.modpack-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.modpack-item-actions button { width: auto; font-size: 12px; padding: 8px 10px; }
+.empty-hint { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
+
+/* Modal de gestión de mods */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #00000088;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+.modal-overlay.active { display: flex; }
+.modal-card { width: 420px; max-height: 80vh; overflow-y: auto; }
+.modal-divider { border: none; border-top: 1px solid #33404d; margin: 18px 0; }
+
+.mods-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-height: 220px; overflow-y: auto; }
+.mod-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: #ffffff08;
+    border: 1px solid #33404d;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+}
+.mod-item-remove {
+    width: auto;
+    background: none;
+    color: var(--danger);
+    padding: 4px 8px;
+    font-size: 16px;
+    line-height: 1;
+}
+.mod-item-remove:hover { background: #ffffff10; }
+
+.invite-result {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+    word-break: break-all;
+    background: #0f151c;
+    border-radius: 8px;
+    padding: 10px;
+    display: none;
+}
+.invite-result.active { display: block; }

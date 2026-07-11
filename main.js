@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const launcher = new Client();
 
@@ -16,8 +17,11 @@ try {
 
 let mainWindow;
 let gameProcess = null;
+let pendingDeepLink = null;
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const INSTANCES_DIR = path.join(app.getPath('appData'), '.milauncher', 'instances');
+const VANILLA_ROOT = path.join(app.getPath('appData'), '.milauncher');
 
 function loadConfig() {
     try {
@@ -40,7 +44,9 @@ function saveConfig(partial) {
     }
 }
 
-// --- Detección automática de Java -----------------------------------------
+// ============================================================================
+// DETECCIÓN AUTOMÁTICA DE JAVA (igual que antes)
+// ============================================================================
 
 function parseVersionFromDirName(name) {
     const matches = name.match(/\d+/g);
@@ -141,11 +147,10 @@ function findNewestJava() {
     return candidates[0].path;
 }
 
-// --- Última versión de Minecraft --------------------------------------------
+// ============================================================================
+// ÚLTIMA VERSIÓN DE MINECRAFT (igual que antes, para el modo "sin modpack")
+// ============================================================================
 
-// Guardamos en memoria la última versión que conseguimos consultar, para no
-// tener que golpear la API de Mojang en cada lanzamiento y para tener un
-// fallback si en algún momento no hay internet.
 let cachedLatestVersion = null;
 
 async function fetchLatestMinecraftVersion() {
@@ -154,9 +159,6 @@ async function fetchLatestMinecraftVersion() {
         throw new Error(`Mojang respondió con estado ${response.status}`);
     }
     const data = await response.json();
-    // data.latest.release = la última versión "release" (no snapshot).
-    // Si en el futuro quieres poder elegir snapshots, data.latest.snapshot
-    // tiene la última snapshot.
     if (!data || !data.latest || !data.latest.release) {
         throw new Error('La respuesta de Mojang no tiene el formato esperado.');
     }
@@ -164,10 +166,6 @@ async function fetchLatestMinecraftVersion() {
     return cachedLatestVersion;
 }
 
-// Devuelve la última versión disponible. Si falla la consulta (sin
-// internet, Mojang caído, etc.) cae a la última que se consiguió con
-// éxito antes, y si nunca se consiguió ninguna, a una versión fija
-// conocida como último recurso.
 async function getMinecraftVersionToLaunch() {
     try {
         return await fetchLatestMinecraftVersion();
@@ -177,27 +175,235 @@ async function getMinecraftVersionToLaunch() {
     }
 }
 
-// ----------------------------------------------------------------------------
+// ============================================================================
+// CLIENTE DE LA API DEL SERVIDOR DE MODPACKS
+// ============================================================================
 
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 900,
-        height: 700,
-        backgroundColor: '#12181f',
-        webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
-            nodeIntegration: false,
-            contextIsolation: true
-        }
-    });
-    mainWindow.loadFile('index.html');
+function getBackendUrl() {
+    const cfg = loadConfig();
+    return (cfg.backendUrl || 'https://serverminecraft-production.up.railway.app/').replace(/\/+$/, '');
 }
 
-app.whenReady().then(createWindow);
+// Hace una petición autenticada al backend. Lanza un error legible si algo
+// falla, para que el renderer pueda mostrarlo directamente en un toast.
+async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {}) {
+    const cfg = loadConfig();
+    if (!cfg.session || !cfg.session.token) {
+        throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
+    }
 
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-});
+    const headers = { Authorization: `Bearer ${cfg.session.token}` };
+    let payload = body;
+    if (body && !isForm) {
+        headers['Content-Type'] = 'application/json';
+        payload = JSON.stringify(body);
+    }
+
+    const res = await fetch(`${getBackendUrl()}${pathname}`, { method, headers, body: payload });
+    let data = null;
+    try { data = await res.json(); } catch (err) { /* respuesta sin cuerpo JSON */ }
+
+    if (!res.ok) {
+        throw new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
+    }
+    return data;
+}
+
+// Verifica el access_token de Microsoft contra nuestro backend y guarda la
+// sesión (JWT) resultante en la config local.
+async function verifySessionWithBackend(accessToken) {
+    const res = await fetch(`${getBackendUrl()}/api/auth/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: accessToken })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo verificar la sesión con el servidor de modpacks.');
+    saveConfig({ session: { token: data.token, uuid: data.uuid, username: data.username } });
+    return data;
+}
+
+// ============================================================================
+// INSTANCIAS DE MODPACKS EN DISCO
+// ============================================================================
+
+function instanceDir(modpackId) {
+    return path.join(INSTANCES_DIR, modpackId);
+}
+function instanceModsDir(modpackId) {
+    return path.join(instanceDir(modpackId), 'mods');
+}
+function instanceMetaPath(modpackId) {
+    return path.join(instanceDir(modpackId), '.launcher-meta.json');
+}
+
+function loadInstanceMeta(modpackId) {
+    try {
+        return JSON.parse(fs.readFileSync(instanceMetaPath(modpackId), 'utf-8'));
+    } catch (err) {
+        return { version_hash: null, mods: [] };
+    }
+}
+function saveInstanceMeta(modpackId, meta) {
+    fs.mkdirSync(instanceDir(modpackId), { recursive: true });
+    fs.writeFileSync(instanceMetaPath(modpackId), JSON.stringify(meta, null, 2));
+}
+
+function sha1File(filePath) {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha1');
+        const stream = fs.createReadStream(filePath);
+        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+    });
+}
+
+async function downloadModFile(modpackId, mod, destPath) {
+    const cfg = loadConfig();
+    const res = await fetch(`${getBackendUrl()}/api/modpacks/${modpackId}/mods/${mod.id}/download`, {
+        headers: { Authorization: `Bearer ${cfg.session.token}` }
+    });
+    if (!res.ok) throw new Error(`No se pudo descargar ${mod.filename} (estado ${res.status}).`);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    fs.writeFileSync(destPath, buffer);
+}
+
+// Compara el manifiesto del servidor con lo que hay en disco y descarga /
+// borra lo que haga falta. Emite progreso a la ventana mientras trabaja.
+async function syncModpack(modpackId) {
+    const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
+    const localMeta = loadInstanceMeta(modpackId);
+    const modsDir = instanceModsDir(modpackId);
+    fs.mkdirSync(modsDir, { recursive: true });
+
+    const remoteMods = manifest.mods; // [{id, filename, filesize, sha1}]
+    const localMods = localMeta.mods || [];
+
+    const remoteById = new Map(remoteMods.map(m => [m.id, m]));
+    const localById = new Map(localMods.map(m => [m.id, m]));
+
+    const toDelete = localMods.filter(m => !remoteById.has(m.id));
+    const toDownload = remoteMods.filter(m => {
+        const local = localById.get(m.id);
+        return !local || local.sha1 !== m.sha1;
+    });
+
+    const totalSteps = toDelete.length + toDownload.length;
+    let doneSteps = 0;
+
+    const sendProgress = (label) => {
+        doneSteps++;
+        const percent = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 100;
+        if (mainWindow) {
+            mainWindow.webContents.send('modpack-sync-progress', { label, percent, modpackId });
+        }
+    };
+
+    for (const mod of toDelete) {
+        const filePath = path.join(modsDir, mod.filename);
+        try { fs.unlinkSync(filePath); } catch (err) { /* ya no estaba */ }
+        sendProgress(`Quitando ${mod.filename}...`);
+    }
+
+    for (const mod of toDownload) {
+        const destPath = path.join(modsDir, mod.filename);
+        await downloadModFile(modpackId, mod, destPath);
+        const actualSha1 = await sha1File(destPath);
+        if (actualSha1 !== mod.sha1) {
+            throw new Error(`El archivo ${mod.filename} se descargó pero no coincide con el original (posible corrupción). Vuelve a intentarlo.`);
+        }
+        sendProgress(`Descargando ${mod.filename}...`);
+    }
+
+    saveInstanceMeta(modpackId, { version_hash: manifest.version_hash, mods: remoteMods });
+
+    return { name: manifest.name, mc_version: manifest.mc_version, version_hash: manifest.version_hash };
+}
+
+// ============================================================================
+// VENTANA Y DEEP LINKS (milauncher://invite/TOKEN)
+// ============================================================================
+
+function handleDeepLink(url) {
+    const match = /^milauncher:\/\/invite\/(.+)$/.exec(url || '');
+    if (!match) return;
+    const token = match[1];
+    if (mainWindow && !mainWindow.webContents.isLoading()) {
+        mainWindow.webContents.send('invite-received', { token });
+        mainWindow.focus();
+    } else {
+        pendingDeepLink = token;
+    }
+}
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+    app.quit();
+} else {
+    app.on('second-instance', (event, argv) => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+        const url = argv.find(arg => arg.startsWith('milauncher://'));
+        if (url) handleDeepLink(url);
+    });
+
+    app.on('open-url', (event, url) => {
+        event.preventDefault();
+        handleDeepLink(url);
+    });
+
+    function createWindow() {
+        mainWindow = new BrowserWindow({
+            width: 900,
+            height: 700,
+            backgroundColor: '#12181f',
+            webPreferences: {
+                preload: path.join(__dirname, 'preload.js'),
+                nodeIntegration: false,
+                contextIsolation: true
+            }
+        });
+        mainWindow.loadFile('index.html');
+
+        mainWindow.webContents.on('did-finish-load', () => {
+            if (pendingDeepLink) {
+                mainWindow.webContents.send('invite-received', { token: pendingDeepLink });
+                pendingDeepLink = null;
+            }
+        });
+    }
+
+    app.whenReady().then(() => {
+        // Registro del protocolo milauncher:// para los links de invitación.
+        // En desarrollo (ejecutando "electron .") hace falta pasar la ruta
+        // del proyecto; en la app empaquetada no.
+        if (process.defaultApp) {
+            if (process.argv.length >= 2) {
+                app.setAsDefaultProtocolClient('milauncher', process.execPath, [path.resolve(process.argv[1])]);
+            }
+        } else {
+            app.setAsDefaultProtocolClient('milauncher');
+        }
+
+        createWindow();
+
+        // En Windows/Linux, si la app se abrió directamente desde un link,
+        // el link viene como argumento en process.argv.
+        const initialUrl = process.argv.find(arg => arg.startsWith('milauncher://'));
+        if (initialUrl) handleDeepLink(initialUrl);
+    });
+
+    app.on('window-all-closed', () => {
+        if (process.platform !== 'darwin') app.quit();
+    });
+}
+
+// ============================================================================
+// EVENTOS DEL LANZADOR DE MINECRAFT
+// ============================================================================
 
 launcher.on('debug', (e) => console.log(`[DEBUG] ${e}`));
 launcher.on('data', (e) => console.log(`[GAME] ${e}`));
@@ -217,13 +423,21 @@ launcher.on('close', (code) => {
     }
 });
 
-// --- Config / cuentas -------------------------------------------------------
+// ============================================================================
+// IPC: CONFIG / CUENTAS
+// ============================================================================
 
 ipcMain.handle('get-config', () => loadConfig());
 
+ipcMain.handle('get-backend-url', () => getBackendUrl());
+ipcMain.handle('set-backend-url', (event, url) => saveConfig({ backendUrl: url }));
+
 ipcMain.handle('login-offline', (event, username) => {
     const account = { type: 'offline', username: username || 'Jugador' };
-    saveConfig({ account });
+    // Las cuentas offline no pueden usar el sistema de modpacks (necesitamos
+    // una identidad verificada de Microsoft para dar acceso por usuario), así
+    // que al cambiar a offline limpiamos cualquier sesión de servidor previa.
+    saveConfig({ account, session: null, activeModpack: null });
     return account;
 });
 
@@ -237,11 +451,9 @@ ipcMain.handle('login-microsoft', async () => {
 
     try {
         const authManager = new Auth('select_account');
-        // 'electron' hace que msmc abra su propia ventana de login de
-        // Microsoft dentro de la app, no hace falta gestionarla a mano.
         const xboxManager = await authManager.launch('electron');
         const token = await xboxManager.getMinecraft();
-        const mclcAuth = token.mclc(); // objeto de autorización listo para minecraft-launcher-core
+        const mclcAuth = token.mclc();
 
         const account = {
             type: 'microsoft',
@@ -251,6 +463,18 @@ ipcMain.handle('login-microsoft', async () => {
         };
 
         saveConfig({ account });
+
+        // Además de guardar la cuenta para jugar, verificamos la sesión
+        // contra el backend de modpacks para poder crear/unirnos a modpacks.
+        try {
+            await verifySessionWithBackend(mclcAuth.access_token);
+        } catch (err) {
+            console.warn('[WARN] No se pudo verificar la sesión con el backend de modpacks:', err.message);
+            // No bloqueamos el login normal por esto: el usuario puede jugar
+            // igualmente, solo no podrá usar modpacks hasta que el backend
+            // esté disponible.
+        }
+
         return { success: true, account: { type: 'microsoft', username: account.username, uuid: account.uuid } };
     } catch (err) {
         console.error('[ERROR] Login con Microsoft fallido:', err);
@@ -264,6 +488,8 @@ ipcMain.handle('login-microsoft', async () => {
 ipcMain.handle('logout', () => {
     const cfg = loadConfig();
     delete cfg.account;
+    cfg.session = null;
+    cfg.activeModpack = null;
     saveConfig(cfg);
     return true;
 });
@@ -282,7 +508,76 @@ ipcMain.handle('auto-detect-java', () => findNewestJava());
 
 ipcMain.handle('get-latest-mc-version', () => getMinecraftVersionToLaunch());
 
-// --- Lanzar / detener el juego ----------------------------------------------
+// ============================================================================
+// IPC: MODPACKS
+// ============================================================================
+
+ipcMain.handle('modpacks-create', async (event, { name, mcVersion }) => {
+    return apiRequest('/api/modpacks', { method: 'POST', body: { name, mc_version: mcVersion } });
+});
+
+ipcMain.handle('modpacks-mine', async () => {
+    return apiRequest('/api/modpacks/mine');
+});
+
+ipcMain.handle('modpacks-manifest', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}/manifest`);
+});
+
+ipcMain.handle('modpacks-add-mod', async (event, { id }) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Selecciona uno o varios mods (.jar)',
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Mods de Minecraft', extensions: ['jar'] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
+
+    const cfg = loadConfig();
+    const uploaded = [];
+    for (const filePath of result.filePaths) {
+        const fileBuffer = fs.readFileSync(filePath);
+        const form = new FormData();
+        form.append('mod', new Blob([fileBuffer]), path.basename(filePath));
+
+        const res = await fetch(`${getBackendUrl()}/api/modpacks/${id}/mods`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${cfg.session.token}` },
+            body: form
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `No se pudo subir ${path.basename(filePath)}.`);
+        uploaded.push(data);
+    }
+    return { cancelled: false, uploaded };
+});
+
+ipcMain.handle('modpacks-remove-mod', async (event, { id, modId }) => {
+    return apiRequest(`/api/modpacks/${id}/mods/${modId}`, { method: 'DELETE' });
+});
+
+ipcMain.handle('modpacks-create-invite', async (event, { id, maxUses, expiresHours }) => {
+    return apiRequest(`/api/modpacks/${id}/invite`, {
+        method: 'POST',
+        body: { max_uses: maxUses || null, expires_in_hours: expiresHours || null }
+    });
+});
+
+ipcMain.handle('modpacks-redeem-invite', async (event, { token }) => {
+    return apiRequest(`/api/invites/${token}/redeem`, { method: 'POST' });
+});
+
+ipcMain.handle('modpacks-sync', async (event, { id }) => {
+    return syncModpack(id);
+});
+
+ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion }) => {
+    saveConfig({ activeModpack: id ? { id, name, mc_version: mcVersion } : null });
+    return true;
+});
+
+// ============================================================================
+// IPC: LANZAR / DETENER EL JUEGO
+// ============================================================================
 
 ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
     const cfg = loadConfig();
@@ -311,13 +606,27 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
         ? account.auth
         : Authenticator.getAuth(account.username);
 
-    const versionNumber = await getMinecraftVersionToLaunch();
-    mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
+    const activeModpack = cfg.activeModpack;
+    let versionNumber;
+    let root;
+
+    if (activeModpack) {
+        // Jugando con un modpack: usamos una carpeta de instancia propia
+        // (para no mezclar mods de distintos modpacks) y la versión de
+        // Minecraft que ese modpack tenga definida, sea cual sea.
+        versionNumber = activeModpack.mc_version;
+        root = instanceDir(activeModpack.id);
+        mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
+    } else {
+        versionNumber = await getMinecraftVersionToLaunch();
+        root = VANILLA_ROOT;
+        mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
+    }
 
     let opts = {
         clientPackage: null,
         authorization,
-        root: path.join(app.getPath('appData'), '.milauncher'),
+        root,
         javaPath: finalJavaPath,
         skipVersionCheck: true,
         version: {

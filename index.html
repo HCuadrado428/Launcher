@@ -13,14 +13,14 @@
         <div id="loginScreen" class="screen active card">
             <div class="login-option">
                 <h3>🧑 Cuenta no premium</h3>
-                <p>Modo offline, para testear o jugar sin cuenta de Mojang/Microsoft.</p>
+                <p>Modo offline, para testear o jugar sin cuenta de Mojang/Microsoft. No permite usar modpacks.</p>
                 <input type="text" id="offlineUsername" placeholder="Tu nombre de usuario" value="Jugador">
                 <button id="offlineLoginBtn">Continuar sin cuenta premium</button>
             </div>
 
             <div class="login-option">
                 <h3>🪟 Cuenta Microsoft</h3>
-                <p>Inicia sesión con tu cuenta oficial de Minecraft/Xbox.</p>
+                <p>Inicia sesión con tu cuenta oficial de Minecraft/Xbox. Necesaria para crear y unirte a modpacks.</p>
                 <button id="msLoginBtn" class="ms-btn secondary">Iniciar sesión con Microsoft</button>
             </div>
         </div>
@@ -54,9 +54,12 @@
                 </div>
             </div>
 
-            <div class="field">
-                <label>Versión de Minecraft</label>
-                <div id="versionLabel" style="font-size: 13px; color: var(--text-dim);">Consultando última versión...</div>
+            <div class="field modpack-field">
+                <label>Instalación a jugar</label>
+                <div class="active-modpack-row">
+                    <div id="activeModpackLabel" style="font-size: 13px; color: var(--text-dim);">Vanilla · consultando última versión...</div>
+                    <button class="secondary" id="openModpacksBtn">Mis modpacks</button>
+                </div>
             </div>
 
             <div class="play-row">
@@ -69,6 +72,62 @@
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
                 <div id="progressLabel">Preparando...</div>
+            </div>
+        </div>
+
+        <!-- PANTALLA DE MODPACKS -->
+        <div id="modpacksScreen" class="screen card">
+            <div class="modpacks-header">
+                <button class="switch-link back-link" id="backToMainBtn">&larr; Volver</button>
+                <h3 style="margin: 0;">Modpacks</h3>
+            </div>
+
+            <div class="login-option">
+                <h3>🔗 Unirme con un link de invitación</h3>
+                <p>Pega aquí el link <code>milauncher://invite/...</code> que te hayan compartido.</p>
+                <input type="text" id="inviteLinkInput" placeholder="milauncher://invite/xxxxxxxx">
+                <button id="redeemInviteBtn">Canjear invitación</button>
+            </div>
+
+            <div class="login-option">
+                <h3>➕ Crear un modpack nuevo</h3>
+                <p>Solo disponible con cuenta Microsoft. Puedes elegir cualquier versión de Minecraft.</p>
+                <input type="text" id="newModpackName" placeholder="Nombre del modpack">
+                <input type="text" id="newModpackVersion" placeholder="Versión de Minecraft (ej. 1.20.1)">
+                <button id="createModpackBtn">Crear modpack</button>
+            </div>
+
+            <div class="field">
+                <label>Mis modpacks (creados por mí)</label>
+                <div id="ownedModpacksList" class="modpack-list"></div>
+            </div>
+
+            <div class="field">
+                <label>Modpacks compartidos conmigo</label>
+                <div id="sharedModpacksList" class="modpack-list"></div>
+            </div>
+
+            <div class="field">
+                <label>Jugar sin modpack</label>
+                <button class="secondary" id="useVanillaBtn">Usar Minecraft vanilla (última versión)</button>
+            </div>
+        </div>
+
+        <!-- MODAL DE GESTIÓN DE MODS -->
+        <div id="modsModal" class="modal-overlay">
+            <div class="modal-card card">
+                <div class="modpacks-header">
+                    <h3 id="modsModalTitle" style="margin: 0;">Gestionar mods</h3>
+                    <button class="switch-link" id="closeModsModalBtn">Cerrar</button>
+                </div>
+                <div id="modsList" class="mods-list"></div>
+                <button id="addModBtn">Añadir mod (.jar)</button>
+                <hr class="modal-divider">
+                <div class="field">
+                    <label>Invitar a otros jugadores</label>
+                    <button class="secondary" id="generateInviteBtn">Generar link de invitación</button>
+                    <div id="inviteResultBox" class="invite-result"></div>
+                </div>
             </div>
         </div>
     </div>
