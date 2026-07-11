@@ -54,6 +54,9 @@ const modsTypeTab = document.getElementById('modsTypeTab');
 const resourcepacksTypeTab = document.getElementById('resourcepacksTypeTab');
 const modsList = document.getElementById('modsList');
 const addModBtn = document.getElementById('addModBtn');
+const modrinthSearchInput = document.getElementById('modrinthSearchInput');
+const modrinthSearchBtn = document.getElementById('modrinthSearchBtn');
+const modrinthResults = document.getElementById('modrinthResults');
 const closeModsModalBtn = document.getElementById('closeModsModalBtn');
 const generateInviteBtn = document.getElementById('generateInviteBtn');
 const inviteResultBox = document.getElementById('inviteResultBox');
@@ -62,6 +65,8 @@ const deleteModpackBtn = document.getElementById('deleteModpackBtn');
 let currentAccount = null;
 let currentModsModalId = null;
 let currentModsModalName = null;
+let currentModsModalMcVersion = null;
+let currentModsModalLoader = null;
 
 function showToast(message, type) {
     const el = document.createElement('div');
@@ -404,7 +409,7 @@ function modpackItemHtml(pack, isOwner) {
                 <div class="modpack-card-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
             </div>
             <div class="modpack-card-actions">
-                ${isOwner ? `<button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}">${t('modpacks.manage')}</button>` : ''}
+                ${isOwner ? `<button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}">${t('modpacks.manage')}</button>` : ''}
                 <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
             </div>
         </div>
@@ -435,7 +440,7 @@ async function loadModpacks() {
             : `<div class="empty-hint">${t('modpacks.empty.shared')}</div>`;
 
         document.querySelectorAll('.manage-btn').forEach(btn => {
-            btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name));
+            btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader));
         });
         document.querySelectorAll('.select-btn').forEach(btn => {
             btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
@@ -539,9 +544,11 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, 
 let currentModsModalType = 'mod';
 let currentManifestMods = [];
 
-async function openModsModal(id, name) {
+async function openModsModal(id, name, mcVersion, loader) {
     currentModsModalId = id;
     currentModsModalName = name;
+    currentModsModalMcVersion = mcVersion;
+    currentModsModalLoader = loader;
     currentModsModalType = 'mod';
     modsTypeTab.classList.add('active');
     resourcepacksTypeTab.classList.remove('active');
@@ -549,6 +556,8 @@ async function openModsModal(id, name) {
     modsModalTitle.innerText = `${t('modal.title')} · ${name}`;
     inviteResultBox.classList.remove('active');
     inviteResultBox.innerText = '';
+    modrinthSearchInput.value = '';
+    modrinthResults.innerHTML = '';
     modsModal.classList.add('active');
     await reloadModsList();
 }
@@ -596,6 +605,7 @@ function selectModsModalType(type) {
     modsTypeTab.classList.toggle('active', type === 'mod');
     resourcepacksTypeTab.classList.toggle('active', type === 'resourcepack');
     addModBtn.innerText = type === 'resourcepack' ? t('modal.addResourcePack') : t('modal.addMod');
+    modrinthResults.innerHTML = '';
     renderModsList();
 }
 
@@ -619,6 +629,75 @@ addModBtn.addEventListener('click', async () => {
         addModBtn.disabled = false;
         addModBtn.innerText = currentModsModalType === 'resourcepack' ? t('modal.addResourcePack') : t('modal.addMod');
     }
+});
+
+// --- Buscador de Modrinth ---
+
+function modrinthResultHtml(hit) {
+    const icon = hit.icon_url
+        ? `<img class="modrinth-result-icon" src="${escapeHtml(hit.icon_url)}" alt="">`
+        : `<div class="modrinth-result-icon"></div>`;
+    return `
+        <div class="modrinth-result-item" data-project-id="${escapeHtml(hit.project_id)}">
+            ${icon}
+            <div class="modrinth-result-info">
+                <div class="modrinth-result-title">${escapeHtml(hit.title)}</div>
+                <div class="modrinth-result-meta">${escapeHtml(hit.author)} · ${hit.downloads.toLocaleString()} ${t('modal.modrinth.downloads')}</div>
+            </div>
+            <button class="secondary modrinth-add-btn" data-project-id="${escapeHtml(hit.project_id)}">${t('modal.modrinth.add')}</button>
+        </div>
+    `;
+}
+
+async function runModrinthSearch() {
+    if (!currentModsModalId) return;
+    modrinthSearchBtn.disabled = true;
+    modrinthResults.innerHTML = `<div class="empty-hint">${t('common.loading')}</div>`;
+    try {
+        const hits = await window.electronAPI.searchModrinth(
+            modrinthSearchInput.value.trim(),
+            currentModsModalMcVersion,
+            currentModsModalLoader,
+            currentModsModalType
+        );
+        modrinthResults.innerHTML = hits.length
+            ? hits.map(modrinthResultHtml).join('')
+            : `<div class="empty-hint">${t('modal.modrinth.empty')}</div>`;
+
+        modrinthResults.querySelectorAll('.modrinth-add-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const originalText = btn.innerText;
+                btn.disabled = true;
+                btn.innerText = '...';
+                try {
+                    await window.electronAPI.addModFromModrinth(
+                        currentModsModalId,
+                        btn.dataset.projectId,
+                        currentModsModalMcVersion,
+                        currentModsModalLoader,
+                        currentModsModalType
+                    );
+                    showToast(t('toast.modrinthAdded'), 'info');
+                    await reloadModsList();
+                } catch (err) {
+                    showToast(err.message || t('toast.modrinthAddFailed'), 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = originalText;
+                }
+            });
+        });
+    } catch (err) {
+        modrinthResults.innerHTML = '';
+        showToast(err.message || t('toast.modrinthSearchFailed'), 'error');
+    } finally {
+        modrinthSearchBtn.disabled = false;
+    }
+}
+
+modrinthSearchBtn.addEventListener('click', runModrinthSearch);
+modrinthSearchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runModrinthSearch();
 });
 
 closeModsModalBtn.addEventListener('click', () => {

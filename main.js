@@ -353,6 +353,47 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
 }
 
 // ============================================================================
+// MODRINTH (búsqueda y resolución de mods/resource packs)
+// ============================================================================
+
+const MODRINTH_USER_AGENT = 'EmberLauncher/1.0 (github.com/HCuadrado428/Launcher)';
+
+// projectType: 'mod' | 'resourcepack' (coincide con el project_type de Modrinth).
+async function searchModrinth(query, mcVersion, loader, projectType) {
+    const facets = [[`project_type:${projectType}`]];
+    if (mcVersion) facets.push([`versions:${mcVersion}`]);
+    if (projectType === 'mod' && loader && loader !== 'vanilla') facets.push([`categories:${loader}`]);
+
+    const params = new URLSearchParams({
+        query: query || '',
+        facets: JSON.stringify(facets),
+        limit: '20'
+    });
+
+    const res = await fetch(`https://api.modrinth.com/v2/search?${params.toString()}`, {
+        headers: { 'User-Agent': MODRINTH_USER_AGENT }
+    });
+    if (!res.ok) throw new Error(`Modrinth respondió con estado ${res.status} al buscar.`);
+    const data = await res.json();
+    return data.hits;
+}
+
+// Devuelve la versión más reciente compatible con la versión de Minecraft y
+// el loader del modpack, o null si no hay ninguna.
+async function resolveBestModrinthVersion(projectId, mcVersion, loader, projectType) {
+    const params = new URLSearchParams();
+    if (mcVersion) params.set('game_versions', JSON.stringify([mcVersion]));
+    if (projectType === 'mod' && loader && loader !== 'vanilla') params.set('loaders', JSON.stringify([loader]));
+
+    const res = await fetch(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version?${params.toString()}`, {
+        headers: { 'User-Agent': MODRINTH_USER_AGENT }
+    });
+    if (!res.ok) throw new Error(`Modrinth respondió con estado ${res.status} al consultar versiones.`);
+    const versions = await res.json();
+    return versions[0] || null;
+}
+
+// ============================================================================
 // CLIENTE DE LA API DEL SERVIDOR DE MODPACKS
 // ============================================================================
 
@@ -445,6 +486,17 @@ function sha1File(filePath) {
 }
 
 async function downloadModFile(modpackId, mod, destPath) {
+    // Los mods con source 'modrinth' (u otras fuentes externas en el futuro)
+    // se descargan directamente del CDN de origen; los subidos a mano pasan
+    // por nuestro propio backend, como siempre.
+    if (mod.source && mod.source !== 'upload' && mod.download_url) {
+        const res = await fetch(mod.download_url);
+        if (!res.ok) throw new Error(`No se pudo descargar ${mod.filename} desde ${mod.source} (estado ${res.status}).`);
+        const buffer = Buffer.from(await res.arrayBuffer());
+        fs.writeFileSync(destPath, buffer);
+        return;
+    }
+
     const cfg = loadConfig();
     const res = await fetch(`${getBackendUrl()}/api/modpacks/${modpackId}/mods/${mod.id}/download`, {
         headers: { Authorization: `Bearer ${cfg.session.token}` }
@@ -836,6 +888,19 @@ ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
 
 ipcMain.handle('modpacks-remove-mod', async (event, { id, modId }) => {
     return apiRequest(`/api/modpacks/${id}/mods/${modId}`, { method: 'DELETE' });
+});
+
+ipcMain.handle('search-modrinth', async (event, { query, mcVersion, loader, projectType }) => {
+    return searchModrinth(query, mcVersion, loader, projectType);
+});
+
+ipcMain.handle('add-mod-from-modrinth', async (event, { id, projectId, mcVersion, loader, projectType }) => {
+    const version = await resolveBestModrinthVersion(projectId, mcVersion, loader, projectType);
+    if (!version) throw new Error('No hay ninguna versión de este mod compatible con la versión de Minecraft/loader del modpack.');
+    return apiRequest(`/api/modpacks/${id}/mods/from-modrinth`, {
+        method: 'POST',
+        body: { project_id: projectId, version_id: version.id, type: projectType }
+    });
 });
 
 ipcMain.handle('modpacks-create-invite', async (event, { id, maxUses, expiresHours }) => {

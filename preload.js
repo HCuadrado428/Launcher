@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getModpackManifest: (id) => ipcRenderer.invoke('modpacks-manifest', { id }),
     addModToModpack: (id, type) => ipcRenderer.invoke('modpacks-add-mod', { id, type }),
     removeModFromModpack: (id, modId) => ipcRenderer.invoke('modpacks-remove-mod', { id, modId }),
+    searchModrinth: (query, mcVersion, loader, projectType) => ipcRenderer.invoke('search-modrinth', { query, mcVersion, loader, projectType }),
+    addModFromModrinth: (id, projectId, mcVersion, loader, projectType) => ipcRenderer.invoke('add-mod-from-modrinth', { id, projectId, mcVersion, loader, projectType }),
     createInvite: (id, maxUses, expiresHours) => ipcRenderer.invoke('modpacks-create-invite', { id, maxUses, expiresHours }),
     redeemInvite: (token) => ipcRenderer.invoke('modpacks-redeem-invite', { token }),
     syncModpack: (id) => ipcRenderer.invoke('modpacks-sync', { id }),

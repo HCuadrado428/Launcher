@@ -168,6 +168,18 @@
                 </div>
                 <div id="modsList" class="mods-list"></div>
                 <button id="addModBtn" data-i18n="modal.addMod">Añadir mod (.jar)</button>
+
+                <details class="collapsible modrinth-search">
+                    <summary data-i18n="modal.modrinth.title">🔍 Buscar en Modrinth</summary>
+                    <div class="collapsible-body">
+                        <div class="modrinth-search-row">
+                            <input type="text" id="modrinthSearchInput" data-i18n-placeholder="modal.modrinth.placeholder" placeholder="Buscar mods...">
+                            <button class="secondary" id="modrinthSearchBtn" data-i18n="modal.modrinth.search">Buscar</button>
+                        </div>
+                        <div id="modrinthResults" class="modrinth-results"></div>
+                    </div>
+                </details>
+
                 <hr class="modal-divider">
                 <div class="field">
                     <label data-i18n="modal.invite.label">Invitar a otros jugadores</label>

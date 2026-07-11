@@ -518,3 +518,37 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     display: none;
 }
 .invite-result.active { display: block; }
+
+.modrinth-search-row { display: flex; gap: 8px; }
+.modrinth-search-row input { margin-bottom: 0; }
+.modrinth-search-row button { width: auto; white-space: nowrap; }
+
+.modrinth-results {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+.modrinth-result-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #ffffff08;
+    border: 1px solid #33404d;
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+.modrinth-result-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    object-fit: cover;
+    background: #0f151c;
+}
+.modrinth-result-info { flex: 1; min-width: 0; }
+.modrinth-result-title { font-size: 13px; font-weight: 600; }
+.modrinth-result-meta { font-size: 11px; color: var(--text-dim); }
+.modrinth-result-item button { width: auto; flex-shrink: 0; font-size: 12px; padding: 8px 12px; }
