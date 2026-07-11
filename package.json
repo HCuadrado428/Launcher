@@ -1,18 +1,46 @@
 {
   "name": "mi-launcher-minecraft",
   "version": "1.0.0",
+  "description": "Launcher de Minecraft con soporte de modpacks, Forge y Fabric",
+  "author": "HCuadrado428",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "pack": "electron-builder --dir"
   },
   "dependencies": {
     "@xmcl/core": "^2.15.1",
     "@xmcl/installer": "^6.1.2",
-    "electron": "^43.1.0",
     "minecraft-launcher-core": "^3.2.3",
     "msmc": "^4.1.0"
   },
   "allowScripts": {
-    "electron@31.7.7": true
+    "electron@31.7.7": true,
+    "electron-winstaller@5.4.0": true
+  },
+  "devDependencies": {
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.hcuadrado428.milauncher",
+    "productName": "Mi Launcher de Minecraft",
+    "files": [
+      "**/*",
+      "!**/*.map"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
