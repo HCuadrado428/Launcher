@@ -119,13 +119,26 @@ languageSelect.addEventListener('change', () => {
 });
 
 // --- Actualizaciones ---
-// Solo mostramos algo cuando ya hay una actualización descargada y lista:
-// no merece la pena molestar al usuario con "comprobando..."/"descargando...".
+// El instalador pesa ~100MB y no hay descarga diferencial entre versiones
+// sin blockmap previo publicado, así que la descarga puede tardar. Mostramos
+// el progreso real en vez de solo el aviso final, para que no parezca que no
+// ha pasado nada mientras se descarga en segundo plano.
 
 window.electronAPI.onUpdateStatus((data) => {
-    if (data.type === 'downloaded') {
-        updateBannerText.innerText = t('update.downloaded', { version: data.version });
+    if (data.type === 'available') {
+        updateBannerText.innerText = t('update.downloading', { version: data.version });
+        updateRestartBtn.style.display = 'none';
         updateBanner.classList.add('active');
+    } else if (data.type === 'downloading') {
+        updateBannerText.innerText = t('update.downloadingPercent', { percent: data.percent });
+        updateRestartBtn.style.display = 'none';
+        updateBanner.classList.add('active');
+    } else if (data.type === 'downloaded') {
+        updateBannerText.innerText = t('update.downloaded', { version: data.version });
+        updateRestartBtn.style.display = '';
+        updateBanner.classList.add('active');
+    } else if (data.type === 'error') {
+        console.warn('Error de actualización:', data.message);
     }
 });
 

@@ -137,6 +137,8 @@ const I18N = {
         'account.ms': 'Cuenta Microsoft',
         'account.offline': 'Cuenta no premium (offline)',
 
+        'update.downloading': 'Descargando la versión v{version}...',
+        'update.downloadingPercent': 'Descargando actualización... {percent}%',
         'update.downloaded': 'Hay una versión nueva lista (v{version}).',
         'update.restart': 'Reiniciar y actualizar'
     },
@@ -276,6 +278,8 @@ const I18N = {
         'account.ms': 'Microsoft account',
         'account.offline': 'Non-premium account (offline)',
 
+        'update.downloading': 'Downloading version v{version}...',
+        'update.downloadingPercent': 'Downloading update... {percent}%',
         'update.downloaded': 'A new version is ready (v{version}).',
         'update.restart': 'Restart and update'
     }

@@ -739,10 +739,13 @@ function setupAutoUpdates() {
     };
 
     autoUpdater.on('update-available', (info) => send('available', { version: info.version }));
+    autoUpdater.on('update-not-available', () => send('not-available'));
     autoUpdater.on('download-progress', (progress) => send('downloading', { percent: Math.round(progress.percent) }));
     autoUpdater.on('update-downloaded', (info) => send('downloaded', { version: info.version }));
     autoUpdater.on('error', (err) => {
-        console.warn('[WARN] Error comprobando actualizaciones:', err && err.message ? err.message : err);
+        const message = err && err.message ? err.message : String(err);
+        console.warn('[WARN] Error comprobando actualizaciones:', message);
+        send('error', { message });
     });
 
     autoUpdater.checkForUpdates().catch((err) => {
