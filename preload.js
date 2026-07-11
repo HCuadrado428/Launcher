@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Versión de Minecraft
     getLatestVersion: () => ipcRenderer.invoke('get-latest-mc-version'),
+    getReleaseVersions: () => ipcRenderer.invoke('get-release-versions'),
+
+    // Idioma
+    setLanguage: (lang) => ipcRenderer.invoke('set-language', lang),
 
     // Juego
     launchGame: (data) => ipcRenderer.send('launch-game', data),
@@ -25,7 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGameProgress: (callback) => ipcRenderer.on('game-progress', (_event, data) => callback(data)),
 
     // Modpacks
-    createModpack: (name, mcVersion) => ipcRenderer.invoke('modpacks-create', { name, mcVersion }),
+    createModpack: (name, mcVersion, loader) => ipcRenderer.invoke('modpacks-create', { name, mcVersion, loader }),
+    deleteModpack: (id) => ipcRenderer.invoke('modpacks-delete', { id }),
     getMyModpacks: () => ipcRenderer.invoke('modpacks-mine'),
     getModpackManifest: (id) => ipcRenderer.invoke('modpacks-manifest', { id }),
     addModToModpack: (id) => ipcRenderer.invoke('modpacks-add-mod', { id }),
@@ -33,7 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createInvite: (id, maxUses, expiresHours) => ipcRenderer.invoke('modpacks-create-invite', { id, maxUses, expiresHours }),
     redeemInvite: (token) => ipcRenderer.invoke('modpacks-redeem-invite', { token }),
     syncModpack: (id) => ipcRenderer.invoke('modpacks-sync', { id }),
-    selectActiveModpack: (id, name, mcVersion) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion }),
+    selectActiveModpack: (id, name, mcVersion, loader) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion, loader }),
     onInviteReceived: (callback) => ipcRenderer.on('invite-received', (_event, data) => callback(data)),
     onModpackSyncProgress: (callback) => ipcRenderer.on('modpack-sync-progress', (_event, data) => callback(data))
 });

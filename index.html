@@ -6,22 +6,28 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div>
-        <h1 class="title">⛏ MI LAUNCHER</h1>
+    <div class="app-shell">
+        <div class="top-bar">
+            <h1 class="title" data-i18n="app.title">⛏ MI LAUNCHER</h1>
+            <select id="languageSelect" class="lang-select" aria-label="Language">
+                <option value="es">Español</option>
+                <option value="en">English</option>
+            </select>
+        </div>
 
         <!-- PANTALLA DE LOGIN -->
         <div id="loginScreen" class="screen active card">
             <div class="login-option">
-                <h3>🧑 Cuenta no premium</h3>
-                <p>Modo offline, para testear o jugar sin cuenta de Mojang/Microsoft. No permite usar modpacks.</p>
-                <input type="text" id="offlineUsername" placeholder="Tu nombre de usuario" value="Jugador">
-                <button id="offlineLoginBtn">Continuar sin cuenta premium</button>
+                <h3 data-i18n="login.offline.title">🧑 Cuenta no premium</h3>
+                <p data-i18n="login.offline.desc">Modo offline, para testear o jugar sin cuenta de Mojang/Microsoft. No permite usar modpacks.</p>
+                <input type="text" id="offlineUsername" data-i18n-placeholder="login.offline.username.placeholder" placeholder="Tu nombre de usuario" value="Jugador">
+                <button id="offlineLoginBtn" data-i18n="login.offline.button">Continuar sin cuenta premium</button>
             </div>
 
             <div class="login-option">
-                <h3>🪟 Cuenta Microsoft</h3>
-                <p>Inicia sesión con tu cuenta oficial de Minecraft/Xbox. Necesaria para crear y unirte a modpacks.</p>
-                <button id="msLoginBtn" class="ms-btn secondary">Iniciar sesión con Microsoft</button>
+                <h3 data-i18n="login.ms.title">🪟 Cuenta Microsoft</h3>
+                <p data-i18n="login.ms.desc">Inicia sesión con tu cuenta oficial de Minecraft/Xbox. Necesaria para crear y unirte a modpacks.</p>
+                <button id="msLoginBtn" class="ms-btn secondary" data-i18n="login.ms.button">Iniciar sesión con Microsoft</button>
             </div>
         </div>
 
@@ -33,21 +39,21 @@
                     <div class="account-name" id="accountName">-</div>
                     <div class="account-type" id="accountType">-</div>
                 </div>
-                <button class="switch-link" id="switchAccountBtn">Cambiar cuenta</button>
+                <button class="switch-link" id="switchAccountBtn" data-i18n="main.switchAccount">Cambiar cuenta</button>
             </div>
 
             <div class="field">
-                <label for="javaPath">Ruta de Java (java.exe)</label>
+                <label for="javaPath" data-i18n="main.java.label">Ruta de Java (java.exe)</label>
                 <div class="java-row">
-                    <input type="text" id="javaPath" placeholder="Se detecta automáticamente si lo dejas vacío">
-                    <button class="secondary" id="detectBtn">Detectar</button>
-                    <button class="secondary" id="browseBtn">Buscar...</button>
+                    <input type="text" id="javaPath" data-i18n-placeholder="main.java.placeholder" placeholder="Se detecta automáticamente si lo dejas vacío">
+                    <button class="secondary" id="detectBtn" data-i18n="main.java.detect">Detectar</button>
+                    <button class="secondary" id="browseBtn" data-i18n="main.java.browse">Buscar...</button>
                 </div>
                 <div id="javaHint"></div>
             </div>
 
             <div class="field">
-                <label for="ramSlider">Memoria RAM asignada</label>
+                <label for="ramSlider" data-i18n="main.ram.label">Memoria RAM asignada</label>
                 <div class="ram-row">
                     <input type="range" id="ramSlider" min="1" max="16" step="1" value="4">
                     <span class="ram-value" id="ramValue">4 GB</span>
@@ -55,61 +61,80 @@
             </div>
 
             <div class="field modpack-field">
-                <label>Instalación a jugar</label>
+                <label data-i18n="main.install.label">Instalación a jugar</label>
                 <div class="active-modpack-row">
                     <div id="activeModpackLabel" style="font-size: 13px; color: var(--text-dim);">Vanilla · consultando última versión...</div>
-                    <button class="secondary" id="openModpacksBtn">Mis modpacks</button>
+                    <button class="secondary" id="openModpacksBtn" data-i18n="main.install.myModpacks">Mis modpacks</button>
                 </div>
             </div>
 
             <div class="play-row">
-                <button id="playBtn">Iniciar Juego</button>
-                <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;">Detener</button>
+                <button id="playBtn" data-i18n="main.play">Iniciar Juego</button>
+                <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;" data-i18n="main.stop">Detener</button>
             </div>
 
             <div id="progressWrap">
                 <div class="progress-track">
                     <div class="progress-fill" id="progressFill"></div>
                 </div>
-                <div id="progressLabel">Preparando...</div>
+                <div id="progressLabel" data-i18n="main.progress.preparing">Preparando...</div>
             </div>
         </div>
 
         <!-- PANTALLA DE MODPACKS -->
-        <div id="modpacksScreen" class="screen card">
+        <div id="modpacksScreen" class="screen card card-wide">
             <div class="modpacks-header">
-                <button class="switch-link back-link" id="backToMainBtn">&larr; Volver</button>
-                <h3 style="margin: 0;">Modpacks</h3>
+                <button class="switch-link back-link" id="backToMainBtn">&larr; <span data-i18n="modpacks.back">Volver</span></button>
+                <h3 style="margin: 0;" data-i18n="modpacks.title">Modpacks</h3>
             </div>
 
-            <div class="login-option">
-                <h3>🔗 Unirme con un link de invitación</h3>
-                <p>Pega aquí el link <code>milauncher://invite/...</code> que te hayan compartido.</p>
-                <input type="text" id="inviteLinkInput" placeholder="milauncher://invite/xxxxxxxx">
-                <button id="redeemInviteBtn">Canjear invitación</button>
-            </div>
+            <details class="collapsible">
+                <summary data-i18n="modpacks.invite.title">🔗 Unirme con un link de invitación</summary>
+                <div class="collapsible-body">
+                    <p data-i18n="modpacks.invite.desc">Pega aquí el link <code>milauncher://invite/...</code> que te hayan compartido.</p>
+                    <input type="text" id="inviteLinkInput" data-i18n-placeholder="modpacks.invite.placeholder" placeholder="milauncher://invite/xxxxxxxx">
+                    <button id="redeemInviteBtn" data-i18n="modpacks.invite.button">Canjear invitación</button>
+                </div>
+            </details>
 
-            <div class="login-option">
-                <h3>➕ Crear un modpack nuevo</h3>
-                <p>Solo disponible con cuenta Microsoft. Puedes elegir cualquier versión de Minecraft.</p>
-                <input type="text" id="newModpackName" placeholder="Nombre del modpack">
-                <input type="text" id="newModpackVersion" placeholder="Versión de Minecraft (ej. 1.20.1)">
-                <button id="createModpackBtn">Crear modpack</button>
-            </div>
+            <details class="collapsible" open>
+                <summary data-i18n="modpacks.create.title">➕ Crear un modpack nuevo</summary>
+                <div class="collapsible-body">
+                    <p data-i18n="modpacks.create.desc">Solo disponible con cuenta Microsoft. Puedes elegir cualquier versión de Minecraft y el loader (Forge/Fabric).</p>
+                    <input type="text" id="newModpackName" data-i18n-placeholder="modpacks.create.name.placeholder" placeholder="Nombre del modpack">
+                    <div class="create-modpack-grid">
+                        <div>
+                            <label for="newModpackVersion" data-i18n="modpacks.create.version.label">Versión de Minecraft</label>
+                            <select id="newModpackVersion">
+                                <option value="" data-i18n="modpacks.create.version.loading">Cargando versiones...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="newModpackLoader" data-i18n="modpacks.create.loader.label">Loader</label>
+                            <select id="newModpackLoader">
+                                <option value="vanilla">Vanilla</option>
+                                <option value="forge">Forge</option>
+                                <option value="fabric">Fabric</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button id="createModpackBtn" data-i18n="modpacks.create.button">Crear modpack</button>
+                </div>
+            </details>
 
             <div class="field">
-                <label>Mis modpacks (creados por mí)</label>
+                <label data-i18n="modpacks.owned.label">Mis modpacks (creados por mí)</label>
                 <div id="ownedModpacksList" class="modpack-list"></div>
             </div>
 
             <div class="field">
-                <label>Modpacks compartidos conmigo</label>
+                <label data-i18n="modpacks.shared.label">Modpacks compartidos conmigo</label>
                 <div id="sharedModpacksList" class="modpack-list"></div>
             </div>
 
             <div class="field">
-                <label>Jugar sin modpack</label>
-                <button class="secondary" id="useVanillaBtn">Usar Minecraft vanilla (última versión)</button>
+                <label data-i18n="modpacks.vanilla.label">Jugar sin modpack</label>
+                <button class="secondary" id="useVanillaBtn" data-i18n="modpacks.vanilla.button">Usar Minecraft vanilla (última versión)</button>
             </div>
         </div>
 
@@ -117,23 +142,26 @@
         <div id="modsModal" class="modal-overlay">
             <div class="modal-card card">
                 <div class="modpacks-header">
-                    <h3 id="modsModalTitle" style="margin: 0;">Gestionar mods</h3>
-                    <button class="switch-link" id="closeModsModalBtn">Cerrar</button>
+                    <h3 id="modsModalTitle" style="margin: 0;" data-i18n="modal.title">Gestionar mods</h3>
+                    <button class="switch-link" id="closeModsModalBtn" data-i18n="modal.close">Cerrar</button>
                 </div>
                 <div id="modsList" class="mods-list"></div>
-                <button id="addModBtn">Añadir mod (.jar)</button>
+                <button id="addModBtn" data-i18n="modal.addMod">Añadir mod (.jar)</button>
                 <hr class="modal-divider">
                 <div class="field">
-                    <label>Invitar a otros jugadores</label>
-                    <button class="secondary" id="generateInviteBtn">Generar link de invitación</button>
+                    <label data-i18n="modal.invite.label">Invitar a otros jugadores</label>
+                    <button class="secondary" id="generateInviteBtn" data-i18n="modal.invite.generate">Generar link de invitación</button>
                     <div id="inviteResultBox" class="invite-result"></div>
                 </div>
+                <hr class="modal-divider">
+                <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
             </div>
         </div>
     </div>
 
     <div id="toastWrap"></div>
 
+    <script src="i18n.js"></script>
     <script src="renderer.js"></script>
 </body>
 </html>

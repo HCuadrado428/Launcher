@@ -5,6 +5,15 @@ const crypto = require('crypto');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const launcher = new Client();
 
+const {
+    installForge,
+    getForgeVersionList,
+    installFabric,
+    getLoaderArtifactListFor,
+    installDependencies
+} = require('@xmcl/installer');
+const { Version } = require('@xmcl/core');
+
 // msmc se carga de forma "segura": si el usuario todavía no ha hecho
 // `npm install`, no queremos que la app entera crashee al arrancar,
 // solo que el login con Microsoft avise del problema.
@@ -175,6 +184,82 @@ async function getMinecraftVersionToLaunch() {
     }
 }
 
+let cachedReleaseVersions = null;
+
+// Todas las versiones "release" de Minecraft, de más reciente a más antigua,
+// sin snapshots ni versiones beta/alpha. Se usa para poblar el <select> de
+// versión al crear un modpack.
+async function fetchReleaseVersions() {
+    const response = await fetch('https://launchermeta.mojang.com/mc/game/version_manifest_v2.json');
+    if (!response.ok) {
+        throw new Error(`Mojang respondió con estado ${response.status}`);
+    }
+    const data = await response.json();
+    cachedReleaseVersions = (data.versions || [])
+        .filter((v) => v.type === 'release')
+        .map((v) => v.id);
+    return cachedReleaseVersions;
+}
+
+async function getReleaseVersionsToShow() {
+    try {
+        return await fetchReleaseVersions();
+    } catch (err) {
+        console.warn('[WARN] No se pudo consultar la lista de versiones de Minecraft:', err.message);
+        return cachedReleaseVersions || [];
+    }
+}
+
+// ============================================================================
+// INSTALACIÓN DE FORGE / FABRIC (@xmcl/installer)
+// ============================================================================
+
+async function resolveForgeVersion(mcVersion) {
+    const list = await getForgeVersionList({ minecraft: mcVersion });
+    const versions = list.versions || [];
+    const pick = versions.find((v) => v.type === 'recommended') || versions.find((v) => v.type === 'latest') || versions[0];
+    if (!pick) throw new Error(`No hay ninguna versión de Forge disponible para Minecraft ${mcVersion}.`);
+    return pick.version;
+}
+
+async function resolveFabricLoaderVersion(mcVersion) {
+    const artifacts = await getLoaderArtifactListFor(mcVersion);
+    const pick = artifacts.find((a) => a.loader.stable) || artifacts[0];
+    if (!pick) throw new Error(`No hay ninguna versión de Fabric Loader disponible para Minecraft ${mcVersion}.`);
+    return pick.loader.version;
+}
+
+// Instala Forge o Fabric dentro de la carpeta de la instancia del modpack y
+// devuelve el "version id" instalado, que es lo que hay que pasar como
+// version.custom a minecraft-launcher-core para lanzar el juego con ese
+// loader. No hace nada (devuelve null) si el modpack es vanilla.
+async function installLoaderForInstance(modpackId, mcVersion, loader) {
+    if (loader !== 'forge' && loader !== 'fabric') return null;
+
+    const root = instanceDir(modpackId);
+    fs.mkdirSync(root, { recursive: true });
+
+    const cfg = loadConfig();
+    const javaPath = (cfg.javaPath && cfg.javaPath.trim()) || findNewestJava();
+
+    let versionId;
+    if (loader === 'forge') {
+        const forgeVersion = await resolveForgeVersion(mcVersion);
+        versionId = await installForge(
+            { mcversion: mcVersion, version: forgeVersion },
+            root,
+            javaPath ? { java: javaPath } : undefined
+        );
+    } else {
+        const loaderVersion = await resolveFabricLoaderVersion(mcVersion);
+        versionId = await installFabric({ minecraftVersion: mcVersion, version: loaderVersion, minecraft: root });
+    }
+
+    const resolved = await Version.parse(root, versionId);
+    await installDependencies(resolved);
+    return versionId;
+}
+
 // ============================================================================
 // CLIENTE DE LA API DEL SERVIDOR DE MODPACKS
 // ============================================================================
@@ -204,7 +289,9 @@ async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {
     try { data = await res.json(); } catch (err) { /* respuesta sin cuerpo JSON */ }
 
     if (!res.ok) {
-        throw new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
+        const err = new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
+        err.status = res.status;
+        throw err;
     }
     return data;
 }
@@ -316,9 +403,43 @@ async function syncModpack(modpackId) {
         sendProgress(`Descargando ${mod.filename}...`);
     }
 
-    saveInstanceMeta(modpackId, { version_hash: manifest.version_hash, mods: remoteMods });
+    // Instalamos Forge/Fabric si hace falta. Se cachea vía .launcher-meta.json
+    // para no reinstalar el loader en cada sincronización si no ha cambiado.
+    const loader = manifest.loader || 'vanilla';
+    let loaderVersionId = localMeta.loader_version_id || null;
+    const versionJsonPath = loaderVersionId
+        ? path.join(instanceDir(modpackId), 'versions', loaderVersionId, `${loaderVersionId}.json`)
+        : null;
+    const needsLoaderInstall = loader !== 'vanilla' && (
+        localMeta.loader !== loader ||
+        localMeta.mc_version !== manifest.mc_version ||
+        !loaderVersionId ||
+        !fs.existsSync(versionJsonPath)
+    );
 
-    return { name: manifest.name, mc_version: manifest.mc_version, version_hash: manifest.version_hash };
+    if (needsLoaderInstall) {
+        if (mainWindow) mainWindow.webContents.send('modpack-sync-progress', { label: `Instalando ${loader}...`, percent: 0, modpackId });
+        loaderVersionId = await installLoaderForInstance(modpackId, manifest.mc_version, loader);
+        if (mainWindow) mainWindow.webContents.send('modpack-sync-progress', { label: `${loader} instalado`, percent: 100, modpackId });
+    } else if (loader === 'vanilla') {
+        loaderVersionId = null;
+    }
+
+    saveInstanceMeta(modpackId, {
+        version_hash: manifest.version_hash,
+        mods: remoteMods,
+        loader,
+        mc_version: manifest.mc_version,
+        loader_version_id: loaderVersionId
+    });
+
+    return {
+        name: manifest.name,
+        mc_version: manifest.mc_version,
+        loader,
+        version_hash: manifest.version_hash,
+        loader_version_id: loaderVersionId
+    };
 }
 
 // ============================================================================
@@ -507,13 +628,20 @@ ipcMain.handle('select-java-path', async () => {
 ipcMain.handle('auto-detect-java', () => findNewestJava());
 
 ipcMain.handle('get-latest-mc-version', () => getMinecraftVersionToLaunch());
+ipcMain.handle('get-release-versions', () => getReleaseVersionsToShow());
+
+ipcMain.handle('set-language', (event, lang) => saveConfig({ language: lang }));
 
 // ============================================================================
 // IPC: MODPACKS
 // ============================================================================
 
-ipcMain.handle('modpacks-create', async (event, { name, mcVersion }) => {
-    return apiRequest('/api/modpacks', { method: 'POST', body: { name, mc_version: mcVersion } });
+ipcMain.handle('modpacks-create', async (event, { name, mcVersion, loader }) => {
+    return apiRequest('/api/modpacks', { method: 'POST', body: { name, mc_version: mcVersion, loader } });
+});
+
+ipcMain.handle('modpacks-delete', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}`, { method: 'DELETE' });
 });
 
 ipcMain.handle('modpacks-mine', async () => {
@@ -570,8 +698,8 @@ ipcMain.handle('modpacks-sync', async (event, { id }) => {
     return syncModpack(id);
 });
 
-ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion }) => {
-    saveConfig({ activeModpack: id ? { id, name, mc_version: mcVersion } : null });
+ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader }) => {
+    saveConfig({ activeModpack: id ? { id, name, mc_version: mcVersion, loader: loader || 'vanilla' } : null });
     return true;
 });
 
@@ -609,12 +737,34 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
     const activeModpack = cfg.activeModpack;
     let versionNumber;
     let root;
+    let loaderVersionId = null;
 
     if (activeModpack) {
-        // Jugando con un modpack: usamos una carpeta de instancia propia
-        // (para no mezclar mods de distintos modpacks) y la versión de
-        // Minecraft que ese modpack tenga definida, sea cual sea.
-        versionNumber = activeModpack.mc_version;
+        // Jugando con un modpack: sincronizamos siempre antes de lanzar (esto
+        // descarga/borra mods, instala Forge/Fabric si hace falta, y de paso
+        // detecta si el modpack fue eliminado por el creador).
+        let synced;
+        try {
+            synced = await syncModpack(activeModpack.id);
+        } catch (err) {
+            if (err.status === 404 || err.status === 403) {
+                try { fs.rmSync(instanceDir(activeModpack.id), { recursive: true, force: true }); } catch (e) { /* ignorar */ }
+                saveConfig({ activeModpack: null });
+                mainWindow.webContents.send('game-status', {
+                    type: 'modpack-removed',
+                    message: `El modpack "${activeModpack.name}" ya no está disponible (fue eliminado o perdiste el acceso). Has vuelto a Minecraft vanilla; pulsa "Iniciar Juego" de nuevo si quieres continuar.`
+                });
+                return;
+            }
+            mainWindow.webContents.send('game-status', {
+                type: 'error',
+                message: `No se pudo sincronizar el modpack: ${err.message}`
+            });
+            return;
+        }
+
+        versionNumber = synced.mc_version;
+        loaderVersionId = synced.loader_version_id;
         root = instanceDir(activeModpack.id);
         mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
     } else {
@@ -629,10 +779,9 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
         root,
         javaPath: finalJavaPath,
         skipVersionCheck: true,
-        version: {
-            number: versionNumber,
-            type: "release"
-        },
+        version: loaderVersionId
+            ? { number: versionNumber, type: 'release', custom: loaderVersionId }
+            : { number: versionNumber, type: 'release' },
         memory: {
             max: (memory && memory.max) || '4G',
             min: (memory && memory.min) || '2G'
