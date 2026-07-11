@@ -7,12 +7,21 @@ const launcher = new Client();
 
 const {
     installForge,
-    getForgeVersionList,
     installFabric,
     getLoaderArtifactListFor,
-    installDependencies
+    installDependencies,
+    installVersion,
+    getVersionList
 } = require('@xmcl/installer');
 const { Version } = require('@xmcl/core');
+
+// URL base de Forge en HTTPS. @xmcl/installer usa por defecto
+// "http://files.minecraftforge.net/maven" (nótese el http://); ese host
+// redirige (301) a https, y la versión de undici que trae la librería no
+// sigue esa redirección aunque se le pida, así que hay que forzar https
+// explícitamente en todas las llamadas (tanto para listar versiones como
+// para descargar el instalador).
+const FORGE_MAVEN_HTTPS = 'https://files.minecraftforge.net/maven';
 
 // msmc se carga de forma "segura": si el usuario todavía no ha hecho
 // `npm install`, no queremos que la app entera crashee al arrancar,
@@ -214,26 +223,81 @@ async function getReleaseVersionsToShow() {
 // INSTALACIÓN DE FORGE / FABRIC (@xmcl/installer)
 // ============================================================================
 
+// Todas las builds de Forge publicadas para una versión de Minecraft, de más
+// reciente a más antigua, marcando cuál es la "recommended"/"latest" oficial
+// (según promotions_slim.json) para poder preseleccionarla en la UI.
+//
+// Usamos maven-metadata.xml (XML plano, servido en https) en vez de
+// getForgeVersionList() de @xmcl/installer, que scrapea la página HTML de
+// Forge en http:// y rompe con "Corrupted Forge Web Page" cuando el servidor
+// redirige a https (ver nota de FORGE_MAVEN_HTTPS arriba).
+async function getForgeVersionsForMc(mcVersion) {
+    const [metaRes, promoRes] = await Promise.all([
+        fetch('https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml'),
+        fetch('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json')
+    ]);
+    if (!metaRes.ok) throw new Error(`No se pudo consultar las versiones de Forge (estado ${metaRes.status}).`);
+
+    const xml = await metaRes.text();
+    const prefix = `${mcVersion}-`;
+    const versions = [...xml.matchAll(/<version>([^<]+)<\/version>/g)]
+        .map((m) => m[1])
+        .filter((v) => v.startsWith(prefix))
+        .map((v) => v.slice(prefix.length));
+    const unique = [...new Set(versions)];
+    unique.sort((a, b) => compareVersionArrays(parseVersionFromDirName(b), parseVersionFromDirName(a)));
+
+    let recommended = null;
+    let latest = null;
+    if (promoRes.ok) {
+        const promos = (await promoRes.json()).promos || {};
+        recommended = promos[`${mcVersion}-recommended`] || null;
+        latest = promos[`${mcVersion}-latest`] || null;
+    }
+
+    return unique.map((version) => ({
+        version,
+        recommended: version === recommended,
+        latest: version === latest
+    }));
+}
+
 async function resolveForgeVersion(mcVersion) {
-    const list = await getForgeVersionList({ minecraft: mcVersion });
-    const versions = list.versions || [];
-    const pick = versions.find((v) => v.type === 'recommended') || versions.find((v) => v.type === 'latest') || versions[0];
+    const list = await getForgeVersionsForMc(mcVersion);
+    const pick = list.find((v) => v.recommended) || list.find((v) => v.latest) || list[0];
     if (!pick) throw new Error(`No hay ninguna versión de Forge disponible para Minecraft ${mcVersion}.`);
     return pick.version;
 }
 
-async function resolveFabricLoaderVersion(mcVersion) {
+// Todas las builds de Fabric Loader para una versión de Minecraft, marcando
+// cuál es la estable más reciente (la que se preselecciona por defecto).
+async function getFabricVersionsForMc(mcVersion) {
     const artifacts = await getLoaderArtifactListFor(mcVersion);
-    const pick = artifacts.find((a) => a.loader.stable) || artifacts[0];
+    const recommendedIndex = artifacts.findIndex((a) => a.loader.stable);
+    return artifacts.map((a, i) => ({
+        version: a.loader.version,
+        stable: a.loader.stable,
+        recommended: i === (recommendedIndex === -1 ? 0 : recommendedIndex)
+    }));
+}
+
+async function resolveFabricLoaderVersion(mcVersion) {
+    const list = await getFabricVersionsForMc(mcVersion);
+    const pick = list.find((v) => v.recommended) || list[0];
     if (!pick) throw new Error(`No hay ninguna versión de Fabric Loader disponible para Minecraft ${mcVersion}.`);
-    return pick.loader.version;
+    return pick.version;
 }
 
 // Instala Forge o Fabric dentro de la carpeta de la instancia del modpack y
 // devuelve el "version id" instalado, que es lo que hay que pasar como
 // version.custom a minecraft-launcher-core para lanzar el juego con ese
 // loader. No hace nada (devuelve null) si el modpack es vanilla.
-async function installLoaderForInstance(modpackId, mcVersion, loader) {
+//
+// requestedLoaderVersion es la build concreta que eligió el creador del
+// modpack (p.ej. "47.4.10" o "0.19.3"). Si viene vacía (modpacks antiguos,
+// creados antes de poder elegir versión), se resuelve automáticamente la
+// recomendada.
+async function installLoaderForInstance(modpackId, mcVersion, loader, requestedLoaderVersion) {
     if (loader !== 'forge' && loader !== 'fabric') return null;
 
     const root = instanceDir(modpackId);
@@ -242,21 +306,48 @@ async function installLoaderForInstance(modpackId, mcVersion, loader) {
     const cfg = loadConfig();
     const javaPath = (cfg.javaPath && cfg.javaPath.trim()) || findNewestJava();
 
+    // El instalador de Forge necesita que el .jar vanilla de esa versión ya
+    // esté en disco (lo usa para post-procesarlo con "jarsplitter"), así que
+    // instalamos primero la versión vanilla base antes de instalar el loader.
+    const versionList = await getVersionList();
+    const versionMeta = versionList.versions.find((v) => v.id === mcVersion);
+    if (!versionMeta) throw new Error(`Minecraft ${mcVersion} no aparece en la lista de versiones de Mojang.`);
+    await installVersion(versionMeta, root);
+
     let versionId;
     if (loader === 'forge') {
-        const forgeVersion = await resolveForgeVersion(mcVersion);
+        const forgeVersion = requestedLoaderVersion || await resolveForgeVersion(mcVersion);
         versionId = await installForge(
             { mcversion: mcVersion, version: forgeVersion },
             root,
-            javaPath ? { java: javaPath } : undefined
+            { mavenHost: FORGE_MAVEN_HTTPS, ...(javaPath ? { java: javaPath } : {}) }
         );
     } else {
-        const loaderVersion = await resolveFabricLoaderVersion(mcVersion);
-        versionId = await installFabric({ minecraftVersion: mcVersion, version: loaderVersion, minecraft: root });
+        const fabricVersion = requestedLoaderVersion || await resolveFabricLoaderVersion(mcVersion);
+        versionId = await installFabric({ minecraftVersion: mcVersion, version: fabricVersion, minecraft: root });
     }
 
+    // Descargar las ~2000 librerías/assets en paralelo es propenso a fallos
+    // puntuales de red (conexiones que se cortan bajo mucha concurrencia).
+    // Los archivos ya descargados y válidos se saltan en cada intento, así
+    // que reintentar es barato y evita que un simple parpadeo de red rompa
+    // toda la sincronización.
     const resolved = await Version.parse(root, versionId);
-    await installDependencies(resolved);
+    const MAX_ATTEMPTS = 5;
+    let lastErr;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+            await installDependencies(resolved, { assetsDownloadConcurrency: 12, librariesDownloadConcurrency: 12 });
+            lastErr = null;
+            break;
+        } catch (err) {
+            lastErr = err;
+            console.warn(`[WARN] Fallo al instalar dependencias de ${loader} (intento ${attempt}/${MAX_ATTEMPTS}):`, err.message || err);
+            if (attempt < MAX_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+    }
+    if (lastErr) throw lastErr;
+
     return versionId;
 }
 
@@ -406,6 +497,7 @@ async function syncModpack(modpackId) {
     // Instalamos Forge/Fabric si hace falta. Se cachea vía .launcher-meta.json
     // para no reinstalar el loader en cada sincronización si no ha cambiado.
     const loader = manifest.loader || 'vanilla';
+    const requestedLoaderVersion = manifest.loader_version || '';
     let loaderVersionId = localMeta.loader_version_id || null;
     const versionJsonPath = loaderVersionId
         ? path.join(instanceDir(modpackId), 'versions', loaderVersionId, `${loaderVersionId}.json`)
@@ -413,13 +505,14 @@ async function syncModpack(modpackId) {
     const needsLoaderInstall = loader !== 'vanilla' && (
         localMeta.loader !== loader ||
         localMeta.mc_version !== manifest.mc_version ||
+        (localMeta.requested_loader_version || '') !== requestedLoaderVersion ||
         !loaderVersionId ||
         !fs.existsSync(versionJsonPath)
     );
 
     if (needsLoaderInstall) {
         if (mainWindow) mainWindow.webContents.send('modpack-sync-progress', { label: `Instalando ${loader}...`, percent: 0, modpackId });
-        loaderVersionId = await installLoaderForInstance(modpackId, manifest.mc_version, loader);
+        loaderVersionId = await installLoaderForInstance(modpackId, manifest.mc_version, loader, requestedLoaderVersion);
         if (mainWindow) mainWindow.webContents.send('modpack-sync-progress', { label: `${loader} instalado`, percent: 100, modpackId });
     } else if (loader === 'vanilla') {
         loaderVersionId = null;
@@ -430,6 +523,7 @@ async function syncModpack(modpackId) {
         mods: remoteMods,
         loader,
         mc_version: manifest.mc_version,
+        requested_loader_version: requestedLoaderVersion,
         loader_version_id: loaderVersionId
     });
 
@@ -437,6 +531,7 @@ async function syncModpack(modpackId) {
         name: manifest.name,
         mc_version: manifest.mc_version,
         loader,
+        loader_version: requestedLoaderVersion,
         version_hash: manifest.version_hash,
         loader_version_id: loaderVersionId
     };
@@ -633,11 +728,21 @@ ipcMain.handle('get-release-versions', () => getReleaseVersionsToShow());
 ipcMain.handle('set-language', (event, lang) => saveConfig({ language: lang }));
 
 // ============================================================================
+// IPC: LISTAS DE VERSIONES DE LOADER (para el selector al crear un modpack)
+// ============================================================================
+
+ipcMain.handle('get-forge-versions', (event, { mcVersion }) => getForgeVersionsForMc(mcVersion));
+ipcMain.handle('get-fabric-versions', (event, { mcVersion }) => getFabricVersionsForMc(mcVersion));
+
+// ============================================================================
 // IPC: MODPACKS
 // ============================================================================
 
-ipcMain.handle('modpacks-create', async (event, { name, mcVersion, loader }) => {
-    return apiRequest('/api/modpacks', { method: 'POST', body: { name, mc_version: mcVersion, loader } });
+ipcMain.handle('modpacks-create', async (event, { name, mcVersion, loader, loaderVersion }) => {
+    return apiRequest('/api/modpacks', {
+        method: 'POST',
+        body: { name, mc_version: mcVersion, loader, loader_version: loaderVersion }
+    });
 });
 
 ipcMain.handle('modpacks-delete', async (event, { id }) => {
@@ -698,8 +803,12 @@ ipcMain.handle('modpacks-sync', async (event, { id }) => {
     return syncModpack(id);
 });
 
-ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader }) => {
-    saveConfig({ activeModpack: id ? { id, name, mc_version: mcVersion, loader: loader || 'vanilla' } : null });
+ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader, loaderVersion }) => {
+    saveConfig({
+        activeModpack: id
+            ? { id, name, mc_version: mcVersion, loader: loader || 'vanilla', loader_version: loaderVersion || '' }
+            : null
+    });
     return true;
 });
 

@@ -41,6 +41,10 @@ const I18N = {
         'modpacks.create.version.label': 'Versión de Minecraft',
         'modpacks.create.version.loading': 'Cargando versiones...',
         'modpacks.create.loader.label': 'Loader',
+        'modpacks.create.loaderVersion.label': 'Versión del loader',
+        'modpacks.create.loaderVersion.loading': 'Cargando versiones...',
+        'modpacks.create.loaderVersion.recommended': 'recomendado',
+        'modpacks.create.loaderVersion.empty': 'No hay versiones disponibles para esta combinación.',
         'modpacks.create.button': 'Crear modpack',
 
         'modpacks.owned.label': 'Mis modpacks (creados por mí)',
@@ -138,6 +142,10 @@ const I18N = {
         'modpacks.create.version.label': 'Minecraft version',
         'modpacks.create.version.loading': 'Loading versions...',
         'modpacks.create.loader.label': 'Loader',
+        'modpacks.create.loaderVersion.label': 'Loader version',
+        'modpacks.create.loaderVersion.loading': 'Loading versions...',
+        'modpacks.create.loaderVersion.recommended': 'recommended',
+        'modpacks.create.loaderVersion.empty': 'No versions available for this combination.',
         'modpacks.create.button': 'Create modpack',
 
         'modpacks.owned.label': 'My modpacks (created by me)',

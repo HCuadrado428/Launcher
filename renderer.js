@@ -38,6 +38,8 @@ const redeemInviteBtn = document.getElementById('redeemInviteBtn');
 const newModpackName = document.getElementById('newModpackName');
 const newModpackVersion = document.getElementById('newModpackVersion');
 const newModpackLoader = document.getElementById('newModpackLoader');
+const loaderVersionField = document.getElementById('loaderVersionField');
+const newModpackLoaderVersion = document.getElementById('newModpackLoaderVersion');
 const createModpackBtn = document.getElementById('createModpackBtn');
 const ownedModpacksList = document.getElementById('ownedModpacksList');
 const sharedModpacksList = document.getElementById('sharedModpacksList');
@@ -162,9 +164,13 @@ ramSlider.addEventListener('input', () => {
 
 async function updateActiveModpackLabel(activeModpack) {
     if (activeModpack) {
-        const loaderSuffix = activeModpack.loader && activeModpack.loader !== 'vanilla'
-            ? ` · ${activeModpack.loader[0].toUpperCase()}${activeModpack.loader.slice(1)}`
-            : '';
+        let loaderSuffix = '';
+        if (activeModpack.loader && activeModpack.loader !== 'vanilla') {
+            const loaderName = activeModpack.loader[0].toUpperCase() + activeModpack.loader.slice(1);
+            loaderSuffix = activeModpack.loader_version
+                ? ` · ${loaderName} ${activeModpack.loader_version}`
+                : ` · ${loaderName}`;
+        }
         activeModpackLabel.innerText = t('label.modpackActive', { name: activeModpack.name, version: activeModpack.mc_version }) + loaderSuffix;
     } else {
         activeModpackLabel.innerText = t('label.vanillaChecking');
@@ -314,23 +320,68 @@ async function ensureReleaseVersionsLoaded() {
     return versions;
 }
 
+// Al elegir Forge/Fabric se rellena un tercer <select> con todas las builds
+// disponibles para la versión de Minecraft elegida, marcando y preseleccionando
+// la recomendada (o la estable más reciente en el caso de Fabric).
+async function updateLoaderVersionOptions() {
+    const loader = newModpackLoader.value;
+    if (loader === 'vanilla') {
+        loaderVersionField.style.display = 'none';
+        newModpackLoaderVersion.innerHTML = '';
+        return;
+    }
+
+    const mcVersion = newModpackVersion.value;
+    if (!mcVersion) return;
+
+    loaderVersionField.style.display = '';
+    newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.loading')}</option>`;
+
+    try {
+        const list = loader === 'forge'
+            ? await window.electronAPI.getForgeVersions(mcVersion)
+            : await window.electronAPI.getFabricVersions(mcVersion);
+
+        if (!list.length) {
+            newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.empty')}</option>`;
+            return;
+        }
+
+        newModpackLoaderVersion.innerHTML = list.map(v => {
+            const tag = v.recommended ? ` (${t('modpacks.create.loaderVersion.recommended')})` : '';
+            return `<option value="${v.version}">${v.version}${tag}</option>`;
+        }).join('');
+
+        const recommended = list.find(v => v.recommended);
+        if (recommended) newModpackLoaderVersion.value = recommended.version;
+    } catch (err) {
+        newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.empty')}</option>`;
+        showToast(err.message || t('modpacks.create.loaderVersion.empty'), 'error');
+    }
+}
+
+newModpackLoader.addEventListener('change', updateLoaderVersionOptions);
+newModpackVersion.addEventListener('change', updateLoaderVersionOptions);
+
 const LOADER_LABELS = { forge: 'Forge', fabric: 'Fabric' };
 
-function loaderBadgeHtml(loader) {
+function loaderBadgeHtml(loader, loaderVersion) {
     if (!loader || loader === 'vanilla') return '';
-    return `<span class="badge badge-${loader}">${LOADER_LABELS[loader] || loader}</span>`;
+    const label = LOADER_LABELS[loader] || loader;
+    const text = loaderVersion ? `${label} ${loaderVersion}` : label;
+    return `<span class="badge badge-${loader}">${escapeHtml(text)}</span>`;
 }
 
 function modpackItemHtml(pack, isOwner) {
     return `
         <div class="modpack-item" data-id="${pack.id}">
             <div class="modpack-item-info">
-                <div class="modpack-item-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader)}</div>
+                <div class="modpack-item-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader, pack.loader_version)}</div>
                 <div class="modpack-item-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
             </div>
             <div class="modpack-item-actions">
                 ${isOwner ? `<button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}">${t('modpacks.manage')}</button>` : ''}
-                <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}">${t('modpacks.play')}</button>
+                <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
             </div>
         </div>
     `;
@@ -363,7 +414,7 @@ async function loadModpacks() {
             btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name));
         });
         document.querySelectorAll('.select-btn').forEach(btn => {
-            btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn));
+            btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
         });
 
         // Si el modpack activo ya no aparece en la lista (borrado por el
@@ -389,12 +440,13 @@ createModpackBtn.addEventListener('click', async () => {
     const name = newModpackName.value.trim();
     const version = newModpackVersion.value;
     const loader = newModpackLoader.value;
+    const loaderVersion = loader !== 'vanilla' ? newModpackLoaderVersion.value : '';
     if (!name || !version) {
         showToast(t('toast.modpackCreateMissingFields'), 'error');
         return;
     }
     try {
-        await window.electronAPI.createModpack(name, version, loader);
+        await window.electronAPI.createModpack(name, version, loader, loaderVersion);
         newModpackName.value = '';
         showToast(t('toast.modpackCreated'), 'info');
         loadModpacks();
@@ -431,7 +483,7 @@ window.electronAPI.onInviteReceived((data) => {
     redeemInvite(data.token);
 });
 
-async function selectAndSyncModpack(id, name, mcVersion, loader, buttonEl) {
+async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, buttonEl) {
     const originalText = buttonEl.innerText;
     buttonEl.disabled = true;
     buttonEl.innerText = '...';
@@ -443,10 +495,11 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, buttonEl) {
     });
 
     try {
-        await window.electronAPI.syncModpack(id);
-        await window.electronAPI.selectActiveModpack(id, name, mcVersion, loader);
+        const synced = await window.electronAPI.syncModpack(id);
+        const resolvedLoaderVersion = (synced && synced.loader_version) || loaderVersion;
+        await window.electronAPI.selectActiveModpack(id, name, mcVersion, loader, resolvedLoaderVersion);
         document.getElementById('mainScreen').dataset.modpackActive = '1';
-        updateActiveModpackLabel({ name, mc_version: mcVersion, loader });
+        updateActiveModpackLabel({ name, mc_version: mcVersion, loader, loader_version: resolvedLoaderVersion });
         showToast(t('toast.modpackReady', { name }), 'info');
         showScreen('mainScreen');
     } catch (err) {
