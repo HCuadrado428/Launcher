@@ -1,6 +1,6 @@
 {
   "name": "mi-launcher-minecraft",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Launcher de Minecraft con soporte de modpacks, Forge y Fabric",
   "author": "HCuadrado428",
   "main": "main.js",
