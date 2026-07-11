@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Idioma
     setLanguage: (lang) => ipcRenderer.invoke('set-language', lang),
 
+    // CurseForge (preparado, todavía no activo)
+    setCurseForgeApiKey: (apiKey) => ipcRenderer.invoke('set-curseforge-api-key', apiKey),
+
     // Actualizaciones
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),
     restartAndUpdate: () => ipcRenderer.send('restart-and-update'),

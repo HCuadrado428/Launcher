@@ -943,6 +943,14 @@ ipcMain.handle('get-release-versions', () => getReleaseVersionsToShow());
 
 ipcMain.handle('set-language', (event, lang) => saveConfig({ language: lang }));
 
+// La búsqueda/descarga de CurseForge todavía no está activa (ver sección de
+// detección de instancias locales): sus términos de uso prohíben cachear
+// datos o hacer de proxy, así que cuando se implemente tendrá que llamar a
+// su API directamente desde aquí con la key de cada usuario, nunca a través
+// del backend propio. De momento solo guardamos la key para cuando llegue
+// ese momento.
+ipcMain.handle('set-curseforge-api-key', (event, apiKey) => saveConfig({ curseforgeApiKey: apiKey || '' }));
+
 // ============================================================================
 // IPC: LISTAS DE VERSIONES DE LOADER (para el selector al crear un modpack)
 // ============================================================================

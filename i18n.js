@@ -68,6 +68,11 @@ const I18N = {
         'import.success': 'Modpack "{name}" importado con {count} mods.',
         'import.partial': '{count} no se pudieron identificar y se han omitido.',
         'import.failed': 'No se pudo importar el modpack.',
+        'import.curseforgeKey.title': '🔑 API key de CurseForge (opcional, próximamente)',
+        'import.curseforgeKey.desc': 'Para poder importar modpacks de CurseForge hará falta tu propia API key gratuita de console.curseforge.com. De momento solo se guarda, todavía no se usa.',
+        'import.curseforgeKey.placeholder': 'Pega aquí tu API key...',
+        'import.curseforgeKey.save': 'Guardar',
+        'import.curseforgeKey.saved': 'API key guardada.',
 
         'modpacks.manage': 'Gestionar',
         'modpacks.play': 'Jugar',
@@ -202,6 +207,11 @@ const I18N = {
         'import.success': 'Modpack "{name}" imported with {count} mods.',
         'import.partial': '{count} could not be identified and were skipped.',
         'import.failed': 'Could not import the modpack.',
+        'import.curseforgeKey.title': '🔑 CurseForge API key (optional, coming soon)',
+        'import.curseforgeKey.desc': "To import CurseForge modpacks you'll need your own free API key from console.curseforge.com. For now it's just saved, it isn't used yet.",
+        'import.curseforgeKey.placeholder': 'Paste your API key here...',
+        'import.curseforgeKey.save': 'Save',
+        'import.curseforgeKey.saved': 'API key saved.',
 
         'modpacks.manage': 'Manage',
         'modpacks.play': 'Play',

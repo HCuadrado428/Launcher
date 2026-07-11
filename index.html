@@ -206,6 +206,15 @@
                 <p data-i18n="import.desc">Busca modpacks que ya tengas instalados con la app de CurseForge o Modrinth en este ordenador.</p>
                 <button class="secondary" id="scanLocalModpacksBtn" data-i18n="import.scan">Buscar instancias</button>
                 <div id="importResults" class="import-results"></div>
+
+                <details class="collapsible">
+                    <summary data-i18n="import.curseforgeKey.title">🔑 API key de CurseForge (opcional, próximamente)</summary>
+                    <div class="collapsible-body">
+                        <p data-i18n="import.curseforgeKey.desc">Para poder importar modpacks de CurseForge hará falta tu propia API key gratuita de console.curseforge.com. De momento solo se guarda, todavía no se usa.</p>
+                        <input type="text" id="curseforgeApiKeyInput" data-i18n-placeholder="import.curseforgeKey.placeholder" placeholder="Pega aquí tu API key...">
+                        <button class="secondary" id="saveCurseforgeApiKeyBtn" data-i18n="import.curseforgeKey.save">Guardar</button>
+                    </div>
+                </details>
             </div>
         </div>
     </div>

@@ -53,6 +53,8 @@ const importModal = document.getElementById('importModal');
 const closeImportModalBtn = document.getElementById('closeImportModalBtn');
 const scanLocalModpacksBtn = document.getElementById('scanLocalModpacksBtn');
 const importResults = document.getElementById('importResults');
+const curseforgeApiKeyInput = document.getElementById('curseforgeApiKeyInput');
+const saveCurseforgeApiKeyBtn = document.getElementById('saveCurseforgeApiKeyBtn');
 
 const modsModal = document.getElementById('modsModal');
 const modsModalTitle = document.getElementById('modsModalTitle');
@@ -248,6 +250,10 @@ window.electronAPI.getConfig().then(async (cfg) => {
         javaPathInput.value = cfg.javaPath;
     } else {
         await runAutoDetect(true);
+    }
+
+    if (cfg && cfg.curseforgeApiKey) {
+        curseforgeApiKeyInput.value = cfg.curseforgeApiKey;
     }
 
     if (cfg && cfg.memory && cfg.memory.max) {
@@ -842,3 +848,8 @@ async function importLocalModpack(instancePath, buttonEl) {
         buttonEl.innerText = originalText;
     }
 }
+
+saveCurseforgeApiKeyBtn.addEventListener('click', async () => {
+    await window.electronAPI.setCurseForgeApiKey(curseforgeApiKeyInput.value.trim());
+    showToast(t('import.curseforgeKey.saved'), 'info');
+});
