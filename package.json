@@ -47,7 +47,8 @@
     "publish": {
       "provider": "github",
       "owner": "HCuadrado428",
-      "repo": "Launcher"
+      "repo": "Launcher",
+      "draft": false
     }
   }
 }
