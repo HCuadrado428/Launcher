@@ -4,6 +4,10 @@ const modpacksScreen = document.getElementById('modpacksScreen');
 
 const languageSelect = document.getElementById('languageSelect');
 
+const updateBanner = document.getElementById('updateBanner');
+const updateBannerText = document.getElementById('updateBannerText');
+const updateRestartBtn = document.getElementById('updateRestartBtn');
+
 const offlineUsername = document.getElementById('offlineUsername');
 const offlineLoginBtn = document.getElementById('offlineLoginBtn');
 const msLoginBtn = document.getElementById('msLoginBtn');
@@ -97,6 +101,21 @@ function renderAccount(account) {
 languageSelect.addEventListener('change', () => {
     setLanguage(languageSelect.value);
     window.electronAPI.setLanguage(languageSelect.value);
+});
+
+// --- Actualizaciones ---
+// Solo mostramos algo cuando ya hay una actualización descargada y lista:
+// no merece la pena molestar al usuario con "comprobando..."/"descargando...".
+
+window.electronAPI.onUpdateStatus((data) => {
+    if (data.type === 'downloaded') {
+        updateBannerText.innerText = t('update.downloaded', { version: data.version });
+        updateBanner.classList.add('active');
+    }
+});
+
+updateRestartBtn.addEventListener('click', () => {
+    window.electronAPI.restartAndUpdate();
 });
 
 // --- Login ---

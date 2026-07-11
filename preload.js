@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Idioma
     setLanguage: (lang) => ipcRenderer.invoke('set-language', lang),
 
+    // Actualizaciones
+    onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),
+    restartAndUpdate: () => ipcRenderer.send('restart-and-update'),
+
     // Juego
     launchGame: (data) => ipcRenderer.send('launch-game', data),
     stopGame: () => ipcRenderer.send('stop-game'),

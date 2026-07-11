@@ -100,7 +100,10 @@ const I18N = {
         'label.vanillaVersion': 'Vanilla · {version} (última release)',
         'label.modpackActive': '📦 {name} · MC {version}',
         'account.ms': 'Cuenta Microsoft',
-        'account.offline': 'Cuenta no premium (offline)'
+        'account.offline': 'Cuenta no premium (offline)',
+
+        'update.downloaded': 'Hay una versión nueva lista (v{version}).',
+        'update.restart': 'Reiniciar y actualizar'
     },
     en: {
         'app.title': '⛏ MY LAUNCHER',
@@ -201,7 +204,10 @@ const I18N = {
         'label.vanillaVersion': 'Vanilla · {version} (latest release)',
         'label.modpackActive': '📦 {name} · MC {version}',
         'account.ms': 'Microsoft account',
-        'account.offline': 'Non-premium account (offline)'
+        'account.offline': 'Non-premium account (offline)',
+
+        'update.downloaded': 'A new version is ready (v{version}).',
+        'update.restart': 'Restart and update'
     }
 };
 

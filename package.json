@@ -7,11 +7,13 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "release": "electron-builder --win --publish always"
   },
   "dependencies": {
     "@xmcl/core": "^2.15.1",
     "@xmcl/installer": "^6.1.2",
+    "electron-updater": "^6.8.9",
     "minecraft-launcher-core": "^3.2.3",
     "msmc": "^4.1.0"
   },
@@ -41,6 +43,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "HCuadrado428",
+      "repo": "Launcher"
     }
   }
 }

@@ -14,6 +14,7 @@ const {
     getVersionList
 } = require('@xmcl/installer');
 const { Version } = require('@xmcl/core');
+const { autoUpdater } = require('electron-updater');
 
 // URL base de Forge en HTTPS. @xmcl/installer usa por defecto
 // "http://files.minecraftforge.net/maven" (nótese el http://); ese host
@@ -538,6 +539,38 @@ async function syncModpack(modpackId) {
 }
 
 // ============================================================================
+// AUTO-ACTUALIZACIÓN (electron-updater + GitHub Releases)
+// ============================================================================
+
+// Comprueba, descarga e instala actualizaciones publicadas como GitHub
+// Release del repo configurado en package.json ("build.publish"). Solo tiene
+// sentido en la app empaquetada: en desarrollo (electron .) no hay artefacto
+// publicado que comprobar y autoUpdater lanzaría un error.
+function setupAutoUpdates() {
+    if (!app.isPackaged) return;
+
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    const send = (type, extra) => {
+        if (mainWindow) mainWindow.webContents.send('update-status', { type, ...extra });
+    };
+
+    autoUpdater.on('update-available', (info) => send('available', { version: info.version }));
+    autoUpdater.on('download-progress', (progress) => send('downloading', { percent: Math.round(progress.percent) }));
+    autoUpdater.on('update-downloaded', (info) => send('downloaded', { version: info.version }));
+    autoUpdater.on('error', (err) => {
+        console.warn('[WARN] Error comprobando actualizaciones:', err && err.message ? err.message : err);
+    });
+
+    autoUpdater.checkForUpdates().catch((err) => {
+        console.warn('[WARN] No se pudo comprobar actualizaciones:', err && err.message ? err.message : err);
+    });
+}
+
+ipcMain.on('restart-and-update', () => autoUpdater.quitAndInstall());
+
+// ============================================================================
 // VENTANA Y DEEP LINKS (milauncher://invite/TOKEN)
 // ============================================================================
 
@@ -605,6 +638,7 @@ if (!gotLock) {
         }
 
         createWindow();
+        setupAutoUpdates();
 
         // En Windows/Linux, si la app se abrió directamente desde un link,
         // el link viene como argumento en process.argv.
