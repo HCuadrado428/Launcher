@@ -48,10 +48,26 @@ const I18N = {
         'modpacks.create.loaderVersion.empty': 'No hay versiones disponibles para esta combinación.',
         'modpacks.create.button': 'Crear modpack',
 
+        'modpacks.import.label': '¿Ya tienes modpacks instalados?',
+        'modpacks.import.button': 'Importar desde CurseForge/Modrinth',
+
         'modpacks.owned.label': 'Mis modpacks (creados por mí)',
         'modpacks.shared.label': 'Modpacks compartidos conmigo',
         'modpacks.vanilla.label': 'Jugar sin modpack',
         'modpacks.vanilla.button': 'Usar Minecraft vanilla (última versión)',
+
+        'import.title': 'Importar modpack instalado',
+        'import.desc': 'Busca modpacks que ya tengas instalados con la app de CurseForge o Modrinth en este ordenador.',
+        'import.scan': 'Buscar instancias',
+        'import.empty': 'No se encontró ninguna instancia de CurseForge ni Modrinth en este ordenador.',
+        'import.scanFailed': 'No se pudo buscar instancias locales.',
+        'import.curseforge.needsKey': 'requiere API key de CurseForge (próximamente)',
+        'import.mods.identified': 'mods identificados',
+        'import.mods.unresolved': 'no se pudo identificar ningún mod',
+        'import.button': 'Importar',
+        'import.success': 'Modpack "{name}" importado con {count} mods.',
+        'import.partial': '{count} no se pudieron identificar y se han omitido.',
+        'import.failed': 'No se pudo importar el modpack.',
 
         'modpacks.manage': 'Gestionar',
         'modpacks.play': 'Jugar',
@@ -166,10 +182,26 @@ const I18N = {
         'modpacks.create.loaderVersion.empty': 'No versions available for this combination.',
         'modpacks.create.button': 'Create modpack',
 
+        'modpacks.import.label': 'Already have modpacks installed?',
+        'modpacks.import.button': 'Import from CurseForge/Modrinth',
+
         'modpacks.owned.label': 'My modpacks (created by me)',
         'modpacks.shared.label': 'Modpacks shared with me',
         'modpacks.vanilla.label': 'Play without a modpack',
         'modpacks.vanilla.button': 'Use vanilla Minecraft (latest version)',
+
+        'import.title': 'Import an installed modpack',
+        'import.desc': 'Look for modpacks you already have installed with the CurseForge or Modrinth app on this computer.',
+        'import.scan': 'Scan for instances',
+        'import.empty': 'No CurseForge or Modrinth instance was found on this computer.',
+        'import.scanFailed': 'Could not scan for local instances.',
+        'import.curseforge.needsKey': 'requires a CurseForge API key (coming soon)',
+        'import.mods.identified': 'mods identified',
+        'import.mods.unresolved': 'could not identify any mods',
+        'import.button': 'Import',
+        'import.success': 'Modpack "{name}" imported with {count} mods.',
+        'import.partial': '{count} could not be identified and were skipped.',
+        'import.failed': 'Could not import the modpack.',
 
         'modpacks.manage': 'Manage',
         'modpacks.play': 'Play',

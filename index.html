@@ -140,6 +140,11 @@
             </details>
 
             <div class="field">
+                <label data-i18n="modpacks.import.label">¿Ya tienes modpacks instalados?</label>
+                <button class="secondary" id="openImportModalBtn" data-i18n="modpacks.import.button">Importar desde CurseForge/Modrinth</button>
+            </div>
+
+            <div class="field">
                 <label data-i18n="modpacks.owned.label">Mis modpacks (creados por mí)</label>
                 <div id="ownedModpacksList" class="modpack-grid"></div>
             </div>
@@ -188,6 +193,19 @@
                 </div>
                 <hr class="modal-divider">
                 <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
+            </div>
+        </div>
+
+        <!-- MODAL DE IMPORTAR MODPACK LOCAL -->
+        <div id="importModal" class="modal-overlay">
+            <div class="modal-card card">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="import.title">Importar modpack instalado</h3>
+                    <button class="switch-link" id="closeImportModalBtn" data-i18n="modal.close">Cerrar</button>
+                </div>
+                <p data-i18n="import.desc">Busca modpacks que ya tengas instalados con la app de CurseForge o Modrinth en este ordenador.</p>
+                <button class="secondary" id="scanLocalModpacksBtn" data-i18n="import.scan">Buscar instancias</button>
+                <div id="importResults" class="import-results"></div>
             </div>
         </div>
     </div>

@@ -552,3 +552,27 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 .modrinth-result-title { font-size: 13px; font-weight: 600; }
 .modrinth-result-meta { font-size: 11px; color: var(--text-dim); }
 .modrinth-result-item button { width: auto; flex-shrink: 0; font-size: 12px; padding: 8px 12px; }
+
+.import-results {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 14px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+.import-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #ffffff08;
+    border: 1px solid #33404d;
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.import-item.unavailable { opacity: .6; }
+.import-item-icon { font-size: 22px; flex-shrink: 0; }
+.import-item-info { flex: 1; min-width: 0; }
+.import-item-name { font-weight: 600; font-size: 13px; }
+.import-item-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.import-item button { width: auto; flex-shrink: 0; font-size: 12px; padding: 8px 12px; }
