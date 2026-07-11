@@ -50,6 +50,8 @@ const sharedModpacksList = document.getElementById('sharedModpacksList');
 
 const modsModal = document.getElementById('modsModal');
 const modsModalTitle = document.getElementById('modsModalTitle');
+const modsTypeTab = document.getElementById('modsTypeTab');
+const resourcepacksTypeTab = document.getElementById('resourcepacksTypeTab');
 const modsList = document.getElementById('modsList');
 const addModBtn = document.getElementById('addModBtn');
 const closeModsModalBtn = document.getElementById('closeModsModalBtn');
@@ -383,6 +385,7 @@ newModpackLoader.addEventListener('change', updateLoaderVersionOptions);
 newModpackVersion.addEventListener('change', updateLoaderVersionOptions);
 
 const LOADER_LABELS = { forge: 'Forge', fabric: 'Fabric' };
+const LOADER_ICONS = { forge: '🛠️', fabric: '🧵' };
 
 function loaderBadgeHtml(loader, loaderVersion) {
     if (!loader || loader === 'vanilla') return '';
@@ -392,13 +395,15 @@ function loaderBadgeHtml(loader, loaderVersion) {
 }
 
 function modpackItemHtml(pack, isOwner) {
+    const icon = LOADER_ICONS[pack.loader] || '📦';
     return `
-        <div class="modpack-item" data-id="${pack.id}">
-            <div class="modpack-item-info">
-                <div class="modpack-item-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader, pack.loader_version)}</div>
-                <div class="modpack-item-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
+        <div class="modpack-card" data-id="${pack.id}">
+            <div class="modpack-card-icon">${icon}</div>
+            <div class="modpack-card-info">
+                <div class="modpack-card-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader, pack.loader_version)}</div>
+                <div class="modpack-card-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
             </div>
-            <div class="modpack-item-actions">
+            <div class="modpack-card-actions">
                 ${isOwner ? `<button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}">${t('modpacks.manage')}</button>` : ''}
                 <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
             </div>
@@ -531,9 +536,16 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, 
 
 // --- Modal de gestión de mods ---
 
+let currentModsModalType = 'mod';
+let currentManifestMods = [];
+
 async function openModsModal(id, name) {
     currentModsModalId = id;
     currentModsModalName = name;
+    currentModsModalType = 'mod';
+    modsTypeTab.classList.add('active');
+    resourcepacksTypeTab.classList.remove('active');
+    addModBtn.innerText = t('modal.addMod');
     modsModalTitle.innerText = `${t('modal.title')} · ${name}`;
     inviteResultBox.classList.remove('active');
     inviteResultBox.innerText = '';
@@ -541,43 +553,62 @@ async function openModsModal(id, name) {
     await reloadModsList();
 }
 
+function renderModsList() {
+    const filtered = currentManifestMods.filter(mod => (mod.type || 'mod') === currentModsModalType);
+    const emptyKey = currentModsModalType === 'resourcepack' ? 'modal.resourcepacks.empty' : 'modal.mods.empty';
+    modsList.innerHTML = filtered.length
+        ? filtered.map(mod => `
+            <div class="mod-item" data-mod-id="${mod.id}">
+                <span>${escapeHtml(mod.filename)}</span>
+                <button class="mod-item-remove" data-mod-id="${mod.id}" title="Quitar">&times;</button>
+            </div>
+        `).join('')
+        : `<div class="empty-hint">${t(emptyKey)}</div>`;
+
+    modsList.querySelectorAll('.mod-item-remove').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            try {
+                await window.electronAPI.removeModFromModpack(currentModsModalId, btn.dataset.modId);
+                showToast(t('toast.modRemoved'), 'info');
+                await reloadModsList();
+            } catch (err) {
+                showToast(err.message || t('toast.modRemoveFailed'), 'error');
+            }
+        });
+    });
+}
+
 async function reloadModsList() {
     if (!currentModsModalId) return;
     modsList.innerHTML = `<div class="empty-hint">${t('common.loading')}</div>`;
     try {
         const manifest = await window.electronAPI.getModpackManifest(currentModsModalId);
-        modsList.innerHTML = manifest.mods.length
-            ? manifest.mods.map(mod => `
-                <div class="mod-item" data-mod-id="${mod.id}">
-                    <span>${escapeHtml(mod.filename)}</span>
-                    <button class="mod-item-remove" data-mod-id="${mod.id}" title="Quitar mod">&times;</button>
-                </div>
-            `).join('')
-            : `<div class="empty-hint">${t('modal.mods.empty')}</div>`;
-
-        modsList.querySelectorAll('.mod-item-remove').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                try {
-                    await window.electronAPI.removeModFromModpack(currentModsModalId, btn.dataset.modId);
-                    showToast(t('toast.modRemoved'), 'info');
-                    await reloadModsList();
-                } catch (err) {
-                    showToast(err.message || t('toast.modRemoveFailed'), 'error');
-                }
-            });
-        });
+        currentManifestMods = manifest.mods;
+        renderModsList();
     } catch (err) {
         modsList.innerHTML = '';
         showToast(err.message || t('toast.modpackManifestLoadFailed'), 'error');
     }
 }
 
+function selectModsModalType(type) {
+    currentModsModalType = type;
+    modsTypeTab.classList.toggle('active', type === 'mod');
+    resourcepacksTypeTab.classList.toggle('active', type === 'resourcepack');
+    addModBtn.innerText = type === 'resourcepack' ? t('modal.addResourcePack') : t('modal.addMod');
+    renderModsList();
+}
+
+modsTypeTab.addEventListener('click', () => selectModsModalType('mod'));
+resourcepacksTypeTab.addEventListener('click', () => selectModsModalType('resourcepack'));
+
 addModBtn.addEventListener('click', async () => {
     if (!currentModsModalId) return;
+    const uploadingText = t('modal.addModUploading');
     addModBtn.disabled = true;
-    addModBtn.innerText = t('modal.addModUploading');
+    addModBtn.innerText = uploadingText;
     try {
-        const result = await window.electronAPI.addModToModpack(currentModsModalId);
+        const result = await window.electronAPI.addModToModpack(currentModsModalId, currentModsModalType);
         if (!result.cancelled) {
             showToast(t('toast.modsUploaded', { count: result.uploaded.length }), 'info');
             await reloadModsList();
@@ -586,7 +617,7 @@ addModBtn.addEventListener('click', async () => {
         showToast(err.message || t('toast.modUploadFailed'), 'error');
     } finally {
         addModBtn.disabled = false;
-        addModBtn.innerText = t('modal.addMod');
+        addModBtn.innerText = currentModsModalType === 'resourcepack' ? t('modal.addResourcePack') : t('modal.addMod');
     }
 });
 

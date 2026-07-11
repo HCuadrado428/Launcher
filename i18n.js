@@ -2,7 +2,8 @@
 // (sin módulos, para encajar con el resto del proyecto).
 const I18N = {
     es: {
-        'app.title': '⛏ MI LAUNCHER',
+        'app.title': 'EMBER LAUNCHER',
+        'app.subtitle': 'Modpacks, Forge, Fabric y Modrinth',
 
         'login.offline.title': '🧑 Cuenta no premium',
         'login.offline.desc': 'Modo offline, para testear o jugar sin cuenta de Mojang/Microsoft. No permite usar modpacks.',
@@ -61,7 +62,10 @@ const I18N = {
 
         'modal.title': 'Gestionar mods',
         'modal.close': 'Cerrar',
+        'modal.tab.mods': 'Mods',
+        'modal.tab.resourcepacks': 'Resource packs',
         'modal.addMod': 'Añadir mod (.jar)',
+        'modal.addResourcePack': 'Añadir resource pack (.zip)',
         'modal.addModUploading': 'Subiendo...',
         'modal.invite.label': 'Invitar a otros jugadores',
         'modal.invite.generate': 'Generar link de invitación',
@@ -69,6 +73,7 @@ const I18N = {
         'modal.deleteConfirm': '¿Seguro que quieres eliminar el modpack "{name}"? Se borrará para siempre, también en los launchers que ya lo tengan instalado.',
         'modal.deleting': 'Eliminando...',
         'modal.mods.empty': 'Este modpack todavía no tiene mods.',
+        'modal.resourcepacks.empty': 'Este modpack todavía no tiene resource packs.',
 
         'toast.loggedIn': 'Sesión iniciada como {name}',
         'toast.msLoginFailed': 'No se pudo iniciar sesión con Microsoft.',
@@ -106,7 +111,8 @@ const I18N = {
         'update.restart': 'Reiniciar y actualizar'
     },
     en: {
-        'app.title': '⛏ MY LAUNCHER',
+        'app.title': 'EMBER LAUNCHER',
+        'app.subtitle': 'Modpacks, Forge, Fabric and Modrinth',
 
         'login.offline.title': '🧑 Non-premium account',
         'login.offline.desc': 'Offline mode, for testing or playing without a Mojang/Microsoft account. Modpacks are not available.',
@@ -165,7 +171,10 @@ const I18N = {
 
         'modal.title': 'Manage mods',
         'modal.close': 'Close',
+        'modal.tab.mods': 'Mods',
+        'modal.tab.resourcepacks': 'Resource packs',
         'modal.addMod': 'Add mod (.jar)',
+        'modal.addResourcePack': 'Add resource pack (.zip)',
         'modal.addModUploading': 'Uploading...',
         'modal.invite.label': 'Invite other players',
         'modal.invite.generate': 'Generate invite link',
@@ -173,6 +182,7 @@ const I18N = {
         'modal.deleteConfirm': 'Are you sure you want to delete the modpack "{name}"? It will be permanently removed, including from launchers that already have it installed.',
         'modal.deleting': 'Deleting...',
         'modal.mods.empty': "This modpack doesn't have any mods yet.",
+        'modal.resourcepacks.empty': "This modpack doesn't have any resource packs yet.",
 
         'toast.loggedIn': 'Signed in as {name}',
         'toast.msLoginFailed': 'Could not sign in with Microsoft.',

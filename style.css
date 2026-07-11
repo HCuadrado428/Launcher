@@ -3,23 +3,24 @@
 * { box-sizing: border-box; }
 
 :root {
-    --bg-1: #0f151c;
-    --bg-2: #1b2530;
+    --bg-1: #120e0d;
+    --bg-2: #241a17;
     --panel: #1e293280;
-    --accent: #6abe30;
-    --accent-dark: #4f9622;
+    --accent: #ff8a3d;
+    --accent-dark: #d9691f;
+    --accent-2: #ffc069;
     --danger: #d64545;
-    --text-dim: #9aa7b5;
+    --text-dim: #a99d94;
 }
 
 body {
     margin: 0;
     min-height: 100vh;
     font-family: 'Inter', sans-serif;
-    color: #eef2f5;
+    color: #f5efe9;
     background:
-        radial-gradient(circle at 20% 15%, #2b3a2b55, transparent 40%),
-        radial-gradient(circle at 80% 85%, #2b3a4a55, transparent 40%),
+        radial-gradient(circle at 20% 10%, #3a231455, transparent 45%),
+        radial-gradient(circle at 85% 90%, #2a2a4a4a, transparent 45%),
         linear-gradient(160deg, var(--bg-1), var(--bg-2));
     display: flex;
     align-items: center;
@@ -37,13 +38,30 @@ body {
 .top-bar {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
     gap: 16px;
     width: 100%;
     max-width: 640px;
     margin-bottom: 6px;
 }
-.top-bar .title { margin-bottom: 0; flex: 1; text-align: center; }
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+.brand-icon {
+    font-size: 30px;
+    filter: drop-shadow(0 0 10px #ff8a3d88);
+}
+.brand-text { min-width: 0; }
+.brand-subtitle {
+    margin: 2px 0 0 0;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: .2px;
+}
 
 .lang-select {
     appearance: none;
@@ -78,12 +96,11 @@ body {
 
 h1.title {
     font-family: 'Press Start 2P', monospace;
-    font-size: 20px;
-    text-align: center;
-    margin: 0 0 30px 0;
+    font-size: 16px;
+    margin: 0;
     color: var(--accent);
-    text-shadow: 3px 3px 0 #00000055;
-    letter-spacing: 1px;
+    text-shadow: 2px 2px 0 #00000055;
+    letter-spacing: .5px;
 }
 
 .card {
@@ -98,7 +115,11 @@ h1.title {
 .card.card-wide { width: 640px; max-width: 92vw; }
 
 .screen { display: none; }
-.screen.active { display: block; }
+.screen.active { display: block; animation: screen-in .22s ease-out; }
+@keyframes screen-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
 /* --- Login screen --- */
 .login-option {
@@ -166,7 +187,7 @@ button {
     width: 100%;
     transition: background .15s, transform .1s;
 }
-button:hover { background: var(--accent-dark); }
+button:hover { background: var(--accent-dark); transform: translateY(-1px); }
 button:active { transform: scale(0.98); }
 button:disabled {
     background: #4a5560;
@@ -208,7 +229,7 @@ button.danger:hover { background: #b93636; }
     width: 42px;
     height: 42px;
     border-radius: 8px;
-    background: linear-gradient(135deg, var(--accent), #3a7a17);
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -282,7 +303,7 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     height: 100%;
     width: 0%;
     border-radius: 8px;
-    background: linear-gradient(90deg, var(--accent), #8fd452);
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
     transition: width .35s ease-out;
 }
 #progressLabel { margin-top: 8px; font-size: 12px; color: var(--text-dim); text-align: center; }
@@ -393,23 +414,40 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 }
 .back-link { padding: 0; font-size: 13px; }
 
-.modpack-list { display: flex; flex-direction: column; gap: 8px; }
-.modpack-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+.modpack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
     gap: 10px;
+}
+.modpack-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     background: #ffffff08;
     border: 1px solid #33404d;
-    border-radius: 10px;
-    padding: 10px 12px;
+    border-radius: 12px;
+    padding: 14px;
+    transition: border-color .15s, transform .15s, background .15s;
 }
-.modpack-item-info { min-width: 0; }
-.modpack-item-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; }
-.modpack-item-meta { font-size: 12px; color: var(--text-dim); }
-.modpack-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.modpack-item-actions button { width: auto; font-size: 12px; padding: 8px 10px; }
-.empty-hint { font-size: 12px; color: var(--text-dim); padding: 6px 2px; }
+.modpack-card:hover {
+    border-color: var(--accent);
+    background: #ffffff0f;
+    transform: translateY(-2px);
+}
+.modpack-card-icon { font-size: 26px; line-height: 1; }
+.modpack-card-info { min-width: 0; }
+.modpack-card-name {
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.modpack-card-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.modpack-card-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.modpack-card-actions button { width: auto; flex: 1; font-size: 12px; padding: 8px 10px; }
+.empty-hint { font-size: 12px; color: var(--text-dim); padding: 6px 2px; grid-column: 1 / -1; }
 
 /* Modal de gestión de mods */
 .modal-overlay {
@@ -424,6 +462,28 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 .modal-overlay.active { display: flex; }
 .modal-card { width: 480px; max-width: 92vw; max-height: 80vh; overflow-y: auto; }
 .modal-divider { border: none; border-top: 1px solid #33404d; margin: 18px 0; }
+
+.type-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    background: #ffffff08;
+    border: 1px solid #33404d;
+    border-radius: 10px;
+    padding: 4px;
+}
+.type-tab {
+    flex: 1;
+    width: auto;
+    background: none;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 10px;
+    border-radius: 7px;
+}
+.type-tab:hover { background: #ffffff10; transform: none; }
+.type-tab.active { background: var(--accent); color: #2a1305; }
 
 .mods-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-height: 220px; overflow-y: auto; }
 .mod-item {

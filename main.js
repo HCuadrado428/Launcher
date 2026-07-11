@@ -412,6 +412,12 @@ function instanceDir(modpackId) {
 function instanceModsDir(modpackId) {
     return path.join(instanceDir(modpackId), 'mods');
 }
+function instanceResourcePacksDir(modpackId) {
+    return path.join(instanceDir(modpackId), 'resourcepacks');
+}
+function instanceDirForModType(modpackId, mod) {
+    return mod.type === 'resourcepack' ? instanceResourcePacksDir(modpackId) : instanceModsDir(modpackId);
+}
 function instanceMetaPath(modpackId) {
     return path.join(instanceDir(modpackId), '.launcher-meta.json');
 }
@@ -453,11 +459,13 @@ async function downloadModFile(modpackId, mod, destPath) {
 async function syncModpack(modpackId) {
     const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
     const localMeta = loadInstanceMeta(modpackId);
-    const modsDir = instanceModsDir(modpackId);
-    fs.mkdirSync(modsDir, { recursive: true });
+    fs.mkdirSync(instanceModsDir(modpackId), { recursive: true });
+    fs.mkdirSync(instanceResourcePacksDir(modpackId), { recursive: true });
 
-    const remoteMods = manifest.mods; // [{id, filename, filesize, sha1}]
-    const localMods = localMeta.mods || [];
+    // Los mods antiguos sincronizados antes de que existiera "type" no lo
+    // tienen guardado en el meta local; se asumen mods normales.
+    const remoteMods = manifest.mods.map(m => ({ type: 'mod', ...m })); // [{id, filename, filesize, sha1, type}]
+    const localMods = (localMeta.mods || []).map(m => ({ type: 'mod', ...m }));
 
     const remoteById = new Map(remoteMods.map(m => [m.id, m]));
     const localById = new Map(localMods.map(m => [m.id, m]));
@@ -480,13 +488,13 @@ async function syncModpack(modpackId) {
     };
 
     for (const mod of toDelete) {
-        const filePath = path.join(modsDir, mod.filename);
+        const filePath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
         try { fs.unlinkSync(filePath); } catch (err) { /* ya no estaba */ }
         sendProgress(`Quitando ${mod.filename}...`);
     }
 
     for (const mod of toDownload) {
-        const destPath = path.join(modsDir, mod.filename);
+        const destPath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
         await downloadModFile(modpackId, mod, destPath);
         const actualSha1 = await sha1File(destPath);
         if (actualSha1 !== mod.sha1) {
@@ -791,11 +799,15 @@ ipcMain.handle('modpacks-manifest', async (event, { id }) => {
     return apiRequest(`/api/modpacks/${id}/manifest`);
 });
 
-ipcMain.handle('modpacks-add-mod', async (event, { id }) => {
+ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
+    const modType = type === 'resourcepack' ? 'resourcepack' : 'mod';
     const result = await dialog.showOpenDialog(mainWindow, {
-        title: 'Selecciona uno o varios mods (.jar)',
+        title: modType === 'resourcepack' ? 'Selecciona uno o varios resource packs (.zip)' : 'Selecciona uno o varios mods (.jar)',
         properties: ['openFile', 'multiSelections'],
-        filters: [{ name: 'Mods de Minecraft', extensions: ['jar'] }]
+        filters: [{
+            name: modType === 'resourcepack' ? 'Resource packs de Minecraft' : 'Mods de Minecraft',
+            extensions: [modType === 'resourcepack' ? 'zip' : 'jar']
+        }]
     });
     if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
 
@@ -804,6 +816,10 @@ ipcMain.handle('modpacks-add-mod', async (event, { id }) => {
     for (const filePath of result.filePaths) {
         const fileBuffer = fs.readFileSync(filePath);
         const form = new FormData();
+        // "type" tiene que ir antes que "mod": multer procesa el multipart en
+        // orden y solo ve los campos ya leídos cuando decide si el archivo
+        // pasa el filtro de extensión.
+        form.append('type', modType);
         form.append('mod', new Blob([fileBuffer]), path.basename(filePath));
 
         const res = await fetch(`${getBackendUrl()}/api/modpacks/${id}/mods`, {

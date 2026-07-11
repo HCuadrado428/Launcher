@@ -41,7 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteModpack: (id) => ipcRenderer.invoke('modpacks-delete', { id }),
     getMyModpacks: () => ipcRenderer.invoke('modpacks-mine'),
     getModpackManifest: (id) => ipcRenderer.invoke('modpacks-manifest', { id }),
-    addModToModpack: (id) => ipcRenderer.invoke('modpacks-add-mod', { id }),
+    addModToModpack: (id, type) => ipcRenderer.invoke('modpacks-add-mod', { id, type }),
     removeModFromModpack: (id, modId) => ipcRenderer.invoke('modpacks-remove-mod', { id, modId }),
     createInvite: (id, maxUses, expiresHours) => ipcRenderer.invoke('modpacks-create-invite', { id, maxUses, expiresHours }),
     redeemInvite: (token) => ipcRenderer.invoke('modpacks-redeem-invite', { token }),

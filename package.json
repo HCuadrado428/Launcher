@@ -1,7 +1,7 @@
 {
   "name": "mi-launcher-minecraft",
-  "version": "1.0.1",
-  "description": "Launcher de Minecraft con soporte de modpacks, Forge y Fabric",
+  "version": "1.1.0",
+  "description": "Ember Launcher — launcher de Minecraft con soporte de modpacks, Forge, Fabric y Modrinth",
   "author": "HCuadrado428",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,7 @@
   },
   "build": {
     "appId": "com.hcuadrado428.milauncher",
-    "productName": "Mi Launcher de Minecraft",
+    "productName": "Ember Launcher",
     "files": [
       "**/*",
       "!**/*.map"
