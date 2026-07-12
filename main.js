@@ -1167,6 +1167,8 @@ if (!gotLock) {
     }
 
     app.whenReady().then(() => {
+        Menu.setApplicationMenu(null);
+
         // Registro del protocolo milauncher:// para los links de invitación.
         // En desarrollo (ejecutando "electron .") hace falta pasar la ruta
         // del proyecto; en la app empaquetada no.
