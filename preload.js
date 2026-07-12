@@ -6,6 +6,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTargetSettings: (modpackId) => ipcRenderer.invoke('get-target-settings', { modpackId }),
     getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
     setBackendUrl: (url) => ipcRenderer.invoke('set-backend-url', url),
+    getSystemMemory: () => ipcRenderer.invoke('get-system-memory'),
+    getSkinRender: (uuid) => ipcRenderer.invoke('get-skin-render', { uuid }),
+    checkBackendStatus: () => ipcRenderer.invoke('check-backend-status'),
 
     // Cuentas
     loginOffline: (username) => ipcRenderer.invoke('login-offline', username),
@@ -30,11 +33,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Idioma
     setLanguage: (lang) => ipcRenderer.invoke('set-language', lang),
 
+    // Tema de color
+    setColorTheme: (theme) => ipcRenderer.invoke('set-color-theme', theme),
+
+    // Horas jugadas
+    getPlaytime: (modpackId) => ipcRenderer.invoke('get-playtime', { modpackId }),
+
     // CurseForge (preparado, todavía no activo)
     setCurseForgeApiKey: (apiKey) => ipcRenderer.invoke('set-curseforge-api-key', apiKey),
-
-    // Discord Rich Presence (opcional, requiere Client ID propio del usuario)
-    setDiscordConfig: (clientId, enabled) => ipcRenderer.invoke('set-discord-config', { clientId, enabled }),
 
     // Actualizaciones
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),
@@ -65,6 +71,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     redeemInvite: (token) => ipcRenderer.invoke('modpacks-redeem-invite', { token }),
     syncModpack: (id) => ipcRenderer.invoke('modpacks-sync', { id }),
     repairModpack: (id) => ipcRenderer.invoke('modpacks-repair', { id }),
+    verifyModpackFiles: (id) => ipcRenderer.invoke('modpacks-verify-files', { id }),
+    exportModpack: (id, name) => ipcRenderer.invoke('modpacks-export', { id, name }),
+    setModpackCover: (id) => ipcRenderer.invoke('modpacks-set-cover', { id }),
     selectActiveModpack: (id, name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion, loader, loaderVersion }),
     onInviteReceived: (callback) => ipcRenderer.on('invite-received', (_event, data) => callback(data)),
     onModpackSyncProgress: (callback) => ipcRenderer.on('modpack-sync-progress', (_event, data) => callback(data)),

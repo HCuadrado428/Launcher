@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Ember Launcher</title>
+<style>
+    html, body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+    }
+    .splash {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        font-family: 'Segoe UI', Inter, sans-serif;
+        background: radial-gradient(circle at 50% 30%, #2a1c17, #120e0d 75%);
+        border-radius: 20px;
+        border: 1px solid #3a2c22;
+        -webkit-user-select: none;
+    }
+    .splash-icon {
+        width: 84px;
+        height: 84px;
+        filter: drop-shadow(0 0 18px #ff8a3d66);
+        animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); filter: drop-shadow(0 0 14px #ff8a3d55); }
+        50% { transform: scale(1.06); filter: drop-shadow(0 0 22px #ff8a3d99); }
+    }
+    .splash-title {
+        font-family: 'Press Start 2P', monospace;
+        font-size: 13px;
+        color: #ff8a3d;
+        letter-spacing: .5px;
+        text-shadow: 2px 2px 0 #00000055;
+    }
+    .splash-dots {
+        display: flex;
+        gap: 6px;
+    }
+    .splash-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #ff8a3d;
+        opacity: .3;
+        animation: dot-blink 1.2s ease-in-out infinite;
+    }
+    .splash-dots span:nth-child(2) { animation-delay: .2s; }
+    .splash-dots span:nth-child(3) { animation-delay: .4s; }
+    @keyframes dot-blink {
+        0%, 80%, 100% { opacity: .25; }
+        40% { opacity: 1; }
+    }
+</style>
+</head>
+<body>
+    <div class="splash">
+        <img class="splash-icon" src="build/icon.png" alt="">
+        <div class="splash-title">EMBER LAUNCHER</div>
+        <div class="splash-dots"><span></span><span></span><span></span></div>
+    </div>
+</body>
+</html>

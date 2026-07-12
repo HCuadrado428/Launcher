@@ -1,17 +1,19 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
+const yazl = require('yazl');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const launcher = new Client();
 
 const {
-    installForge,
+    installForgeTask,
     installFabric,
     getLoaderArtifactListFor,
-    installDependencies,
-    installVersion,
+    installDependenciesTask,
+    installVersionTask,
     getVersionList
 } = require('@xmcl/installer');
 const { Version } = require('@xmcl/core');
@@ -35,16 +37,15 @@ try {
     console.warn('[WARN] msmc no está instalado. Ejecuta "npm install" para poder usar el login con Microsoft.');
 }
 
-let DiscordRPC = null;
-try {
-    DiscordRPC = require('@xhayper/discord-rpc');
-} catch (err) {
-    console.warn('[WARN] @xhayper/discord-rpc no está instalado. Ejecuta "npm install" para poder usar Discord Rich Presence.');
-}
-
 let mainWindow;
 let gameProcess = null;
 let pendingDeepLink = null;
+let tray = null;
+let isQuitting = false;
+let playSessionStart = null;
+let playSessionTargetKey = null;
+
+const APP_ICON_PATH = path.join(__dirname, 'build', 'icon.ico');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const INSTANCES_DIR = path.join(app.getPath('appData'), '.milauncher', 'instances');
@@ -336,6 +337,24 @@ async function resolveFabricLoaderVersion(mcVersion) {
     return pick.version;
 }
 
+// Ejecuta un Task de @xmcl/installer (la variante "Task" de sus funciones de
+// instalación, que sí reporta progreso real en vez de solo "ha empezado/ha
+// terminado") y reenvía ese progreso a la ventana como un paso más de la
+// sincronización del modpack.
+function runInstallTask(task, modpackId, labelPrefix) {
+    return task.startAndWait({
+        onUpdate: () => {
+            if (!mainWindow || !task.total) return;
+            const percent = Math.min(100, Math.round((task.progress / task.total) * 100));
+            mainWindow.webContents.send('modpack-sync-progress', {
+                label: `${labelPrefix}... ${percent}%`,
+                percent,
+                modpackId
+            });
+        }
+    });
+}
+
 // Instala Forge o Fabric dentro de la carpeta de la instancia del modpack y
 // devuelve el "version id" instalado, que es lo que hay que pasar como
 // version.custom a minecraft-launcher-core para lanzar el juego con ese
@@ -360,15 +379,19 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
     const versionList = await getVersionList();
     const versionMeta = versionList.versions.find((v) => v.id === mcVersion);
     if (!versionMeta) throw new Error(`Minecraft ${mcVersion} no aparece en la lista de versiones de Mojang.`);
-    await installVersion(versionMeta, root);
+    await runInstallTask(installVersionTask(versionMeta, root), modpackId, 'Descargando Minecraft base');
 
     let versionId;
     if (loader === 'forge') {
         const forgeVersion = requestedLoaderVersion || await resolveForgeVersion(mcVersion);
-        versionId = await installForge(
-            { mcversion: mcVersion, version: forgeVersion },
-            root,
-            { mavenHost: FORGE_MAVEN_HTTPS, ...(javaPath ? { java: javaPath } : {}) }
+        versionId = await runInstallTask(
+            installForgeTask(
+                { mcversion: mcVersion, version: forgeVersion },
+                root,
+                { mavenHost: FORGE_MAVEN_HTTPS, ...(javaPath ? { java: javaPath } : {}) }
+            ),
+            modpackId,
+            'Instalando Forge'
         );
     } else {
         const fabricVersion = requestedLoaderVersion || await resolveFabricLoaderVersion(mcVersion);
@@ -385,7 +408,11 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
     let lastErr;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
-            await installDependencies(resolved, { assetsDownloadConcurrency: 12, librariesDownloadConcurrency: 12 });
+            await runInstallTask(
+                installDependenciesTask(resolved, { assetsDownloadConcurrency: 12, librariesDownloadConcurrency: 12 }),
+                modpackId,
+                `Descargando librerías de ${loader}`
+            );
             lastErr = null;
             break;
         } catch (err) {
@@ -571,8 +598,35 @@ function getBackendUrl() {
     return (cfg.backendUrl || 'https://serverminecraft-production.up.railway.app/').replace(/\/+$/, '');
 }
 
+// Backends "gratis" (como el de Railway que usamos) pueden tardar bastante
+// en despertar tras estar inactivos, y una petición colgada sin límite de
+// tiempo se percibe como que el launcher se ha quedado colgado en vez de
+// simplemente "tardando". Con un timeout, como mucho falla con un mensaje
+// claro en vez de esperar para siempre.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            throw new Error('El servidor ha tardado demasiado en responder (puede estar arrancando tras estar inactivo). Inténtalo de nuevo en unos segundos.');
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 // Hace una petición autenticada al backend. Lanza un error legible si algo
 // falla, para que el renderer pueda mostrarlo directamente en un toast.
+//
+// Si el backend está "dormido" (Railway free tier lo apaga tras estar
+// inactivo) la primera petición puede fallar por timeout o por un error de
+// red antes de que termine de arrancar. En ese caso reintentamos un par de
+// veces con espera creciente antes de rendirnos; un error HTTP normal (404,
+// 403, 400...) NO se reintenta, porque reintentar no lo va a arreglar y hay
+// que propagarlo tal cual para que el renderer lo muestre.
 async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {}) {
     const cfg = loadConfig();
     if (!cfg.session || !cfg.session.token) {
@@ -586,22 +640,33 @@ async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {
         payload = JSON.stringify(body);
     }
 
-    const res = await fetch(`${getBackendUrl()}${pathname}`, { method, headers, body: payload });
-    let data = null;
-    try { data = await res.json(); } catch (err) { /* respuesta sin cuerpo JSON */ }
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        let res;
+        try {
+            res = await fetchWithTimeout(`${getBackendUrl()}${pathname}`, { method, headers, body: payload });
+        } catch (networkErr) {
+            if (attempt === MAX_ATTEMPTS) throw networkErr;
+            await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
+            continue;
+        }
 
-    if (!res.ok) {
-        const err = new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
-        err.status = res.status;
-        throw err;
+        let data = null;
+        try { data = await res.json(); } catch (err) { /* respuesta sin cuerpo JSON */ }
+
+        if (!res.ok) {
+            const err = new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
+            err.status = res.status;
+            throw err;
+        }
+        return data;
     }
-    return data;
 }
 
 // Verifica el access_token de Microsoft contra nuestro backend y guarda la
 // sesión (JWT) resultante en la config local.
 async function verifySessionWithBackend(accessToken) {
-    const res = await fetch(`${getBackendUrl()}/api/auth/verify`, {
+    const res = await fetchWithTimeout(`${getBackendUrl()}/api/auth/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ access_token: accessToken })
@@ -658,8 +723,13 @@ async function downloadModFile(modpackId, mod, destPath) {
     // Los mods con source 'modrinth' (u otras fuentes externas en el futuro)
     // se descargan directamente del CDN de origen; los subidos a mano pasan
     // por nuestro propio backend, como siempre.
+    // Timeout más largo que el de las llamadas normales a la API: aquí se
+    // cuenta la descarga completa del archivo, no solo la respuesta inicial,
+    // y un mod puede pesar bastante en una conexión lenta.
+    const DOWNLOAD_TIMEOUT_MS = 120000;
+
     if (mod.source && mod.source !== 'upload' && mod.download_url) {
-        const res = await fetch(mod.download_url);
+        const res = await fetchWithTimeout(mod.download_url, {}, DOWNLOAD_TIMEOUT_MS);
         if (!res.ok) throw new Error(`No se pudo descargar ${mod.filename} desde ${mod.source} (estado ${res.status}).`);
         const buffer = Buffer.from(await res.arrayBuffer());
         fs.writeFileSync(destPath, buffer);
@@ -667,9 +737,9 @@ async function downloadModFile(modpackId, mod, destPath) {
     }
 
     const cfg = loadConfig();
-    const res = await fetch(`${getBackendUrl()}/api/modpacks/${modpackId}/mods/${mod.id}/download`, {
+    const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/mods/${mod.id}/download`, {
         headers: { Authorization: `Bearer ${cfg.session.token}` }
-    });
+    }, DOWNLOAD_TIMEOUT_MS);
     if (!res.ok) throw new Error(`No se pudo descargar ${mod.filename} (estado ${res.status}).`);
     const buffer = Buffer.from(await res.arrayBuffer());
     fs.writeFileSync(destPath, buffer);
@@ -817,6 +887,57 @@ async function syncModpack(modpackId) {
 }
 
 // ============================================================================
+// BANDEJA DEL SISTEMA
+// ============================================================================
+
+const TRAY_LABELS = {
+    es: { open: 'Abrir Ember Launcher', quit: 'Salir' },
+    en: { open: 'Open Ember Launcher', quit: 'Quit' },
+    fr: { open: 'Ouvrir Ember Launcher', quit: 'Quitter' },
+    de: { open: 'Ember Launcher öffnen', quit: 'Beenden' },
+    pt: { open: 'Abrir Ember Launcher', quit: 'Sair' }
+};
+
+function trayLabels() {
+    const lang = loadConfig().language;
+    return TRAY_LABELS[lang] || TRAY_LABELS.es;
+}
+
+// Cerrar la ventana ya no cierra el launcher del todo: se queda en la
+// bandeja del sistema para no perder la sesión ni la partida en curso por un
+// clic accidental en la X. Solo se cierra de verdad desde el menú de la
+// bandeja o al instalar una actualización.
+async function setupTray() {
+    let icon = nativeImage.createFromPath(APP_ICON_PATH);
+    if (icon.isEmpty()) {
+        try {
+            icon = await app.getFileIcon(process.execPath);
+        } catch (err) {
+            icon = nativeImage.createEmpty();
+        }
+    }
+
+    tray = new Tray(icon);
+    tray.setToolTip('Ember Launcher');
+
+    const rebuildMenu = () => {
+        const labels = trayLabels();
+        tray.setContextMenu(Menu.buildFromTemplate([
+            { label: labels.open, click: () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } } },
+            { type: 'separator' },
+            { label: labels.quit, click: () => { isQuitting = true; app.quit(); } }
+        ]));
+    };
+    rebuildMenu();
+
+    tray.on('click', () => { if (mainWindow) { mainWindow.show(); mainWindow.focus(); } });
+
+    // El idioma puede cambiar mientras la app está abierta; el menú se
+    // reconstruye la próxima vez que se abre para reflejarlo.
+    tray.on('right-click', rebuildMenu);
+}
+
+// ============================================================================
 // NOTIFICACIONES NATIVAS DE WINDOWS
 // ============================================================================
 
@@ -826,56 +947,6 @@ function notify(title, body) {
     if (!Notification.isSupported()) return;
     new Notification({ title, body }).show();
 }
-
-// ============================================================================
-// DISCORD RICH PRESENCE (opcional, requiere que el usuario ponga su propio
-// Client ID de una app creada en discord.com/developers/applications)
-// ============================================================================
-
-let discordClient = null;
-let discordConnected = false;
-
-// Se conecta con el cliente de Discord instalado en local vía IPC. Si
-// Discord no está abierto, o el usuario no ha puesto un Client ID válido,
-// falla en silencio: esto es un extra cosmético, nunca debe romper nada.
-async function setupDiscordRPC() {
-    if (discordClient) {
-        try { await discordClient.destroy(); } catch (err) { /* ya estaba desconectado */ }
-        discordClient = null;
-        discordConnected = false;
-    }
-
-    if (!DiscordRPC) return;
-    const cfg = loadConfig();
-    if (!cfg.discordEnabled || !cfg.discordClientId) return;
-
-    try {
-        const client = new DiscordRPC.Client({ clientId: cfg.discordClientId });
-        client.on('ready', () => { discordConnected = true; });
-        client.on('disconnected', () => { discordConnected = false; });
-        await client.login();
-        discordClient = client;
-    } catch (err) {
-        console.warn('[WARN] No se pudo conectar con Discord Rich Presence (¿tienes Discord abierto?):', err && err.message ? err.message : err);
-        discordClient = null;
-    }
-}
-
-function setDiscordActivity(details, state) {
-    if (!discordClient || !discordConnected || !discordClient.user) return;
-    discordClient.user.setActivity({ details, state, startTimestamp: new Date() }).catch(() => { /* presencia es solo cosmética */ });
-}
-
-function clearDiscordActivity() {
-    if (!discordClient || !discordConnected || !discordClient.user) return;
-    discordClient.user.clearActivity().catch(() => { /* presencia es solo cosmética */ });
-}
-
-ipcMain.handle('set-discord-config', async (event, { clientId, enabled }) => {
-    saveConfig({ discordClientId: (clientId || '').trim(), discordEnabled: Boolean(enabled) });
-    await setupDiscordRPC();
-    return { connected: discordConnected };
-});
 
 // ============================================================================
 // AUTO-ACTUALIZACIÓN (electron-updater + GitHub Releases)
@@ -938,6 +1009,53 @@ ipcMain.on('restart-and-update', () => autoUpdater.quitAndInstall());
 
 ipcMain.handle('get-app-version', () => app.getVersion());
 
+// RAM física total del sistema, para avisar en la UI si el usuario asigna
+// más memoria de la que realmente hay (eso causa crashes confusos de Java).
+ipcMain.handle('get-system-memory', () => os.totalmem());
+
+// Render 3D del skin para la cabecera de cuenta. Se pide desde el proceso
+// principal (no como <img src> directo en el renderer) por dos motivos:
+// 1) Visage exige un User-Agent identificable y rechaza cualquier UA de
+//    navegador (a un <img> normal no se le puede poner cabecera propia).
+// 2) Así podemos probar Crafatar primero y caer a Visage si el primero
+//    falla (p.ej. si Crafatar está caído), sin que el renderer tenga que
+//    saber nada de estos detalles.
+async function fetchImageAsDataUri(url, extraHeaders) {
+    const res = await fetchWithTimeout(url, { headers: extraHeaders }, 8000);
+    if (!res.ok) throw new Error(`estado ${res.status}`);
+    const contentType = res.headers.get('content-type') || 'image/png';
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
+
+ipcMain.handle('get-skin-render', async (event, { uuid }) => {
+    if (!uuid) return null;
+    try {
+        return await fetchImageAsDataUri(`https://crafatar.com/renders/body/${uuid}?scale=6&overlay`);
+    } catch (err) {
+        console.warn('[WARN] Crafatar no disponible, probando con Visage:', err.message);
+    }
+    try {
+        return await fetchImageAsDataUri(`https://visage.surgeplay.com/full/256/${uuid}`, {
+            'User-Agent': 'EmberLauncher/1.3.0 (+https://github.com/HCuadrado428/Launcher)'
+        });
+    } catch (err) {
+        console.warn('[WARN] Visage tampoco disponible:', err.message);
+        return null;
+    }
+});
+
+// Estado del backend (arriba/dormido/caído), para el puntito de estado en la
+// pantalla de modpacks. Usa /health, que no necesita sesión.
+ipcMain.handle('check-backend-status', async () => {
+    try {
+        const res = await fetchWithTimeout(`${getBackendUrl()}/health`, {}, 8000);
+        return { ok: res.ok };
+    } catch (err) {
+        return { ok: false };
+    }
+});
+
 // Comprobación manual (botón "Buscar actualizaciones" en la UI). Reusa los
 // mismos eventos de arriba para avisar al renderer del resultado.
 ipcMain.handle('check-for-updates', async () => {
@@ -986,11 +1104,38 @@ if (!gotLock) {
         handleDeepLink(url);
     });
 
+    // Pantalla de carga: tapa el parpadeo en blanco/negro que da Electron los
+    // primeros instantes mientras arranca el proceso de renderizado, y se
+    // cierra sola en cuanto la ventana principal ya tiene su primer frame
+    // pintado. Se le da un mínimo de medio segundo para que no sea un
+    // parpadeo aún más raro en máquinas rápidas donde todo carga al instante.
+    function createSplashWindow() {
+        const splash = new BrowserWindow({
+            width: 320,
+            height: 360,
+            frame: false,
+            transparent: true,
+            resizable: false,
+            movable: false,
+            skipTaskbar: true,
+            alwaysOnTop: true,
+            icon: APP_ICON_PATH,
+            webPreferences: { contextIsolation: true }
+        });
+        splash.loadFile('splash.html');
+        return splash;
+    }
+
     function createWindow() {
+        const splashWindow = createSplashWindow();
+        const splashMinDuration = new Promise((resolve) => setTimeout(resolve, 500));
+
         mainWindow = new BrowserWindow({
             width: 900,
             height: 700,
             backgroundColor: '#12181f',
+            icon: APP_ICON_PATH,
+            show: false,
             webPreferences: {
                 preload: path.join(__dirname, 'preload.js'),
                 nodeIntegration: false,
@@ -999,10 +1144,24 @@ if (!gotLock) {
         });
         mainWindow.loadFile('index.html');
 
+        mainWindow.once('ready-to-show', () => {
+            splashMinDuration.then(() => {
+                if (!splashWindow.isDestroyed()) splashWindow.close();
+                mainWindow.show();
+            });
+        });
+
         mainWindow.webContents.on('did-finish-load', () => {
             if (pendingDeepLink) {
                 mainWindow.webContents.send('invite-received', { token: pendingDeepLink });
                 pendingDeepLink = null;
+            }
+        });
+
+        mainWindow.on('close', (event) => {
+            if (!isQuitting) {
+                event.preventDefault();
+                mainWindow.hide();
             }
         });
     }
@@ -1020,13 +1179,17 @@ if (!gotLock) {
         }
 
         createWindow();
+        setupTray();
         setupAutoUpdates();
-        setupDiscordRPC();
 
         // En Windows/Linux, si la app se abrió directamente desde un link,
         // el link viene como argumento en process.argv.
         const initialUrl = process.argv.find(arg => arg.startsWith('milauncher://'));
         if (initialUrl) handleDeepLink(initialUrl);
+    });
+
+    app.on('before-quit', () => {
+        isQuitting = true;
     });
 
     app.on('window-all-closed', () => {
@@ -1054,10 +1217,21 @@ launcher.on('download-status', (e) => {
 launcher.on('close', (code) => {
     console.log(`[CLOSE] El juego se cerró con código ${code}`);
     gameProcess = null;
+
+    if (playSessionStart) {
+        const minutesPlayed = (Date.now() - playSessionStart) / 60000;
+        const key = playSessionTargetKey || 'vanilla';
+        const cfg = loadConfig();
+        const playtime = { ...(cfg.playtime || {}) };
+        playtime[key] = (playtime[key] || 0) + minutesPlayed;
+        saveConfig({ playtime });
+        playSessionStart = null;
+        playSessionTargetKey = null;
+    }
+
     if (mainWindow) {
         mainWindow.webContents.send('game-status', { type: 'closed', code });
     }
-    clearDiscordActivity();
     if (code !== 0) {
         notify('Ember Launcher', `Minecraft se cerró inesperadamente (código ${code}). Revisa la consola del juego para más detalles.`);
     }
@@ -1067,7 +1241,20 @@ launcher.on('close', (code) => {
 // IPC: CONFIG / CUENTAS
 // ============================================================================
 
-ipcMain.handle('get-config', () => loadConfig());
+// La primera vez que se abre el launcher todavía no hay idioma guardado; en
+// vez de arrancar siempre en español, probamos a adivinarlo del idioma del
+// sistema operativo (si está entre los que soportamos).
+const SUPPORTED_LANGUAGES = ['es', 'en', 'fr', 'de', 'pt'];
+
+ipcMain.handle('get-config', () => {
+    const cfg = loadConfig();
+    if (!cfg.language) {
+        const systemLang = (app.getLocale() || 'es').slice(0, 2).toLowerCase();
+        const chosen = SUPPORTED_LANGUAGES.includes(systemLang) ? systemLang : 'es';
+        return saveConfig({ language: chosen });
+    }
+    return cfg;
+});
 
 // RAM y ruta de Java guardadas por modpack (o "vanilla" si no hay ninguno
 // activo), en vez de un único valor global. Si el modpack pedido no tiene
@@ -1079,7 +1266,8 @@ ipcMain.handle('get-target-settings', (event, { modpackId }) => {
     const saved = (cfg.perModpackSettings && cfg.perModpackSettings[key]) || {};
     return {
         javaPath: saved.javaPath || cfg.javaPath || '',
-        memory: saved.memory || cfg.memory || null
+        memory: saved.memory || cfg.memory || null,
+        customArgs: saved.customArgs || ''
     };
 });
 
@@ -1225,6 +1413,17 @@ ipcMain.handle('get-release-versions', () => getReleaseVersionsToShow());
 
 ipcMain.handle('set-language', (event, lang) => saveConfig({ language: lang }));
 
+ipcMain.handle('set-color-theme', (event, theme) => saveConfig({ colorTheme: theme }));
+
+// Minutos totales jugados con este modpack (o "vanilla"), acumulados en
+// local cada vez que se cierra una partida. Es solo un contador cosmético,
+// no se sincroniza con el servidor.
+ipcMain.handle('get-playtime', (event, { modpackId }) => {
+    const cfg = loadConfig();
+    const key = modpackId || 'vanilla';
+    return (cfg.playtime && cfg.playtime[key]) || 0;
+});
+
 // La búsqueda/descarga de CurseForge todavía no está activa (ver sección de
 // detección de instancias locales): sus términos de uso prohíben cachear
 // datos o hacer de proxy, así que cuando se implemente tendrá que llamar a
@@ -1278,7 +1477,7 @@ ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
     const cfg = loadConfig();
     const uploaded = [];
     for (const filePath of result.filePaths) {
-        const fileBuffer = fs.readFileSync(filePath);
+        const fileBuffer = await fs.promises.readFile(filePath);
         const form = new FormData();
         // "type" tiene que ir antes que "mod": multer procesa el multipart en
         // orden y solo ve los campos ya leídos cuando decide si el archivo
@@ -1381,8 +1580,118 @@ ipcMain.handle('modpacks-sync', async (event, { id }) => {
 // instalado, meta de sincronización...) y vuelve a sincronizar desde cero,
 // por si algo se corrompió y una sincronización normal no lo arregla.
 ipcMain.handle('modpacks-repair', async (event, { id }) => {
-    fs.rmSync(instanceDir(id), { recursive: true, force: true });
+    await fs.promises.rm(instanceDir(id), { recursive: true, force: true });
     return syncModpack(id);
+});
+
+// "Verificar archivos": más ligero que "Reparar". No toca el loader ni borra
+// nada de entrada; recalcula el sha1 real de cada mod ya descargado (no el
+// que se recordó en su día, por si el archivo se corrompió o alguien lo tocó
+// a mano) y solo vuelve a descargar los que de verdad no coinciden.
+ipcMain.handle('modpacks-verify-files', async (event, { id }) => {
+    const localMeta = loadInstanceMeta(id);
+    const mods = localMeta.mods || [];
+    const total = mods.length;
+    let checked = 0;
+    let fixed = 0;
+
+    for (const mod of mods) {
+        checked++;
+        const filePath = path.join(instanceDirForModType(id, mod), mod.filename);
+        let actualSha1 = null;
+        if (fs.existsSync(filePath)) {
+            try { actualSha1 = await sha1File(filePath); } catch (err) { actualSha1 = null; }
+        }
+
+        const percent = total > 0 ? Math.round((checked / total) * 100) : 100;
+        if (actualSha1 === mod.sha1) {
+            if (mainWindow) {
+                mainWindow.webContents.send('modpack-sync-progress', { label: `Comprobando ${mod.filename}...`, percent, modpackId: id });
+            }
+            continue;
+        }
+
+        if (mainWindow) {
+            mainWindow.webContents.send('modpack-sync-progress', { label: `Corrigiendo ${mod.filename}...`, percent, modpackId: id });
+        }
+        await downloadModFile(id, mod, filePath);
+        const redownloadedSha1 = await sha1File(filePath);
+        if (redownloadedSha1 !== mod.sha1) {
+            throw new Error(`El archivo ${mod.filename} se volvió a descargar pero sigue sin coincidir con el original. Vuelve a intentarlo.`);
+        }
+        fixed++;
+    }
+
+    return { checked, fixed };
+});
+
+// Exporta los mods y resource packs ya descargados de un modpack a un .zip
+// local, para tener copia de seguridad sin depender del servidor. No incluye
+// las librerías/assets de Forge o Fabric: esos se pueden volver a instalar en
+// cualquier momento y ocuparían muchísimo más que los propios mods.
+function addDirToZip(zipfile, dir, base) {
+    if (!fs.existsSync(dir)) return 0;
+    let count = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        const rel = `${base}/${entry.name}`;
+        if (entry.isDirectory()) {
+            count += addDirToZip(zipfile, full, rel);
+        } else {
+            zipfile.addFile(full, rel);
+            count++;
+        }
+    }
+    return count;
+}
+
+ipcMain.handle('modpacks-export', async (event, { id, name }) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Exportar modpack',
+        defaultPath: `${(name || 'modpack').replace(/[\\/:*?"<>|]/g, '_')}.zip`,
+        filters: [{ name: 'Archivo zip', extensions: ['zip'] }]
+    });
+    if (result.canceled || !result.filePath) return { cancelled: true };
+
+    const zipfile = new yazl.ZipFile();
+    const fileCount = addDirToZip(zipfile, instanceModsDir(id), 'mods')
+        + addDirToZip(zipfile, instanceResourcePacksDir(id), 'resourcepacks');
+
+    await new Promise((resolve, reject) => {
+        zipfile.outputStream.pipe(fs.createWriteStream(result.filePath))
+            .on('close', resolve)
+            .on('error', reject);
+        zipfile.end();
+    });
+
+    return { cancelled: false, filePath: result.filePath, fileCount };
+});
+
+const COVER_MIME_BY_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+const COVER_MAX_BYTES = 250 * 1024;
+
+ipcMain.handle('modpacks-set-cover', async (event, { id }) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Elegir portada del modpack',
+        properties: ['openFile'],
+        filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
+
+    const filePath = result.filePaths[0];
+    const ext = path.extname(filePath).toLowerCase();
+    const mime = COVER_MIME_BY_EXT[ext];
+    if (!mime) throw new Error('Formato de imagen no soportado.');
+
+    const stat = await fs.promises.stat(filePath);
+    if (stat.size > COVER_MAX_BYTES) {
+        throw new Error(`La imagen pesa ${formatBytesMain(stat.size)}; usa una de menos de ${formatBytesMain(COVER_MAX_BYTES)}.`);
+    }
+
+    const buffer = await fs.promises.readFile(filePath);
+    const dataUri = `data:${mime};base64,${buffer.toString('base64')}`;
+    await apiRequest(`/api/modpacks/${id}/cover`, { method: 'PUT', body: { cover_image: dataUri } });
+    return { cancelled: false, coverImage: dataUri };
 });
 
 ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader, loaderVersion }) => {
@@ -1398,7 +1707,7 @@ ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader, l
 // IPC: LANZAR / DETENER EL JUEGO
 // ============================================================================
 
-ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
+ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
     const cfg = loadConfig();
     const account = cfg.account;
 
@@ -1419,9 +1728,11 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
         return;
     }
 
+    const finalCustomArgs = typeof customArgs === 'string' ? customArgs.trim() : '';
+
     const targetKey = (cfg.activeModpack && cfg.activeModpack.id) || 'vanilla';
     const perModpackSettings = { ...(cfg.perModpackSettings || {}) };
-    perModpackSettings[targetKey] = { javaPath: finalJavaPath, memory };
+    perModpackSettings[targetKey] = { javaPath: finalJavaPath, memory, customArgs: finalCustomArgs };
     saveConfig({ javaPath: finalJavaPath, memory, perModpackSettings });
 
     const authorization = account.type === 'microsoft'
@@ -1442,7 +1753,7 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
             synced = await syncModpack(activeModpack.id);
         } catch (err) {
             if (err.status === 404 || err.status === 403) {
-                try { fs.rmSync(instanceDir(activeModpack.id), { recursive: true, force: true }); } catch (e) { /* ignorar */ }
+                try { await fs.promises.rm(instanceDir(activeModpack.id), { recursive: true, force: true }); } catch (e) { /* ignorar */ }
                 saveConfig({ activeModpack: null });
                 mainWindow.webContents.send('game-status', {
                     type: 'modpack-removed',
@@ -1488,16 +1799,15 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
         memory: {
             max: (memory && memory.max) || '4G',
             min: (memory && memory.min) || '2G'
-        }
+        },
+        ...(finalCustomArgs ? { customArgs: finalCustomArgs.split(/\s+/).filter(Boolean) } : {})
     };
 
     try {
         gameProcess = await launcher.launch(opts);
         mainWindow.webContents.send('game-status', { type: 'launched' });
-        setDiscordActivity(
-            activeModpack ? `Jugando ${activeModpack.name}` : 'Jugando Minecraft vanilla',
-            `Minecraft ${versionNumber}`
-        );
+        playSessionStart = Date.now();
+        playSessionTargetKey = targetKey;
     } catch (err) {
         console.error('[ERROR] Fallo al lanzar el juego:', err);
         gameProcess = null;

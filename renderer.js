@@ -2,7 +2,30 @@ const loginScreen = document.getElementById('loginScreen');
 const mainScreen = document.getElementById('mainScreen');
 const modpacksScreen = document.getElementById('modpacksScreen');
 
+// --- Fondo de chispas/ascuas ---
+// Puramente decorativo: unas cuantas motas subiendo lentamente de fondo, a
+// juego con el nombre "Ember Launcher". Solo transform/opacity (acelerado
+// por GPU) y respeta prefers-reduced-motion vía CSS.
+(function initEmberParticles() {
+    const container = document.getElementById('emberParticles');
+    const COUNT = 22;
+    for (let i = 0; i < COUNT; i++) {
+        const particle = document.createElement('span');
+        particle.className = 'ember-particle';
+        const size = 3 + Math.random() * 5;
+        particle.style.left = Math.random() * 100 + '%';
+        particle.style.width = size + 'px';
+        particle.style.height = size + 'px';
+        particle.style.setProperty('--ember-drift', (Math.random() * 80 - 40) + 'px');
+        particle.style.animationDuration = (9 + Math.random() * 10) + 's';
+        particle.style.animationDelay = (Math.random() * -20) + 's';
+        container.appendChild(particle);
+    }
+})();
+
 const languageSelect = document.getElementById('languageSelect');
+const themeSwitcher = document.getElementById('themeSwitcher');
+const themeSwatches = document.querySelectorAll('.theme-swatch');
 
 const updateBanner = document.getElementById('updateBanner');
 const updateBannerText = document.getElementById('updateBannerText');
@@ -36,13 +59,12 @@ const javaHint = document.getElementById('javaHint');
 
 const ramSlider = document.getElementById('ramSlider');
 const ramValue = document.getElementById('ramValue');
+const ramHint = document.getElementById('ramHint');
+const customJvmArgsInput = document.getElementById('customJvmArgsInput');
 
 const playBtn = document.getElementById('playBtn');
 const stopBtn = document.getElementById('stopBtn');
 const openConsoleBtn = document.getElementById('openConsoleBtn');
-const discordEnabledCheckbox = document.getElementById('discordEnabledCheckbox');
-const discordClientIdInput = document.getElementById('discordClientIdInput');
-const saveDiscordConfigBtn = document.getElementById('saveDiscordConfigBtn');
 const consoleModal = document.getElementById('consoleModal');
 const consoleLogBox = document.getElementById('consoleLogBox');
 const closeConsoleModalBtn = document.getElementById('closeConsoleModalBtn');
@@ -54,6 +76,7 @@ const progressLabel = document.getElementById('progressLabel');
 const toastWrap = document.getElementById('toastWrap');
 
 const activeModpackLabel = document.getElementById('activeModpackLabel');
+const playtimeLabel = document.getElementById('playtimeLabel');
 const openModpacksBtn = document.getElementById('openModpacksBtn');
 const backToMainBtn = document.getElementById('backToMainBtn');
 const useVanillaBtn = document.getElementById('useVanillaBtn');
@@ -68,6 +91,9 @@ const newModpackLoaderVersion = document.getElementById('newModpackLoaderVersion
 const createModpackBtn = document.getElementById('createModpackBtn');
 const ownedModpacksList = document.getElementById('ownedModpacksList');
 const sharedModpacksList = document.getElementById('sharedModpacksList');
+const modpackSearchInput = document.getElementById('modpackSearchInput');
+const backendStatusDot = document.getElementById('backendStatusDot');
+const backendStatusText = document.getElementById('backendStatusText');
 
 const openImportModalBtn = document.getElementById('openImportModalBtn');
 const importModal = document.getElementById('importModal');
@@ -91,6 +117,9 @@ const generateInviteBtn = document.getElementById('generateInviteBtn');
 const inviteResultBox = document.getElementById('inviteResultBox');
 const deleteModpackBtn = document.getElementById('deleteModpackBtn');
 const repairModpackBtn = document.getElementById('repairModpackBtn');
+const verifyModpackBtn = document.getElementById('verifyModpackBtn');
+const exportModpackBtn = document.getElementById('exportModpackBtn');
+const setCoverBtn = document.getElementById('setCoverBtn');
 
 let currentAccount = null;
 let currentModsModalId = null;
@@ -130,13 +159,25 @@ function renderAccount(account) {
     if (account.type === 'microsoft') {
         accountType.innerText = t('account.ms');
         if (account.uuid) {
-            avatar.innerHTML = `<img src="https://crafatar.com/avatars/${account.uuid}?size=42&overlay" onerror="this.parentElement.innerText='${(account.username || '?')[0].toUpperCase()}'">`;
+            const fallbackLetter = (account.username || '?')[0].toUpperCase();
+            avatar.classList.remove('avatar-render');
+            avatar.innerText = fallbackLetter;
+            // Se pide por IPC (no <img src> directo) porque Visage, el
+            // respaldo si Crafatar está caído, exige una cabecera
+            // User-Agent propia que un <img> normal no puede mandar.
+            window.electronAPI.getSkinRender(account.uuid).then((dataUri) => {
+                if (!dataUri || currentAccount !== account) return;
+                avatar.classList.add('avatar-render');
+                avatar.innerHTML = `<img src="${dataUri}" alt="">`;
+            });
         } else {
+            avatar.classList.remove('avatar-render');
             avatar.innerText = (account.username || '?')[0].toUpperCase();
         }
         openModpacksBtn.disabled = false;
     } else {
         accountType.innerText = t('account.offline');
+        avatar.classList.remove('avatar-render');
         avatar.innerHTML = '';
         avatar.innerText = (account.username || '?')[0].toUpperCase();
         // Las cuentas offline no tienen identidad verificable en el servidor
@@ -153,6 +194,22 @@ languageSelect.addEventListener('change', () => {
     setLanguage(languageSelect.value);
     window.electronAPI.setLanguage(languageSelect.value);
     if (currentAppVersion) checkUpdatesBtn.innerText = t('app.checkUpdates', { version: currentAppVersion });
+});
+
+// --- Tema de color ---
+
+function applyColorTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    themeSwatches.forEach((swatch) => {
+        swatch.classList.toggle('active', swatch.dataset.theme === theme);
+    });
+}
+
+themeSwitcher.addEventListener('click', (e) => {
+    const swatch = e.target.closest('.theme-swatch');
+    if (!swatch) return;
+    applyColorTheme(swatch.dataset.theme);
+    window.electronAPI.setColorTheme(swatch.dataset.theme);
 });
 
 // --- Actualizaciones ---
@@ -371,6 +428,25 @@ async function applyTargetSettings(modpackId) {
         ramSlider.value = 4;
     }
     ramValue.innerText = ramSlider.value + ' GB';
+    updateRamHint();
+
+    customJvmArgsInput.value = (settings && settings.customArgs) || '';
+    updatePlaytimeLabel(modpackId);
+}
+
+// --- Horas jugadas ---
+
+function formatPlaytime(totalMinutes) {
+    const rounded = Math.round(totalMinutes);
+    if (rounded < 1) return '';
+    const hours = Math.floor(rounded / 60);
+    const minutes = rounded % 60;
+    return t('main.playtime', { hours, minutes });
+}
+
+async function updatePlaytimeLabel(modpackId) {
+    const minutes = await window.electronAPI.getPlaytime(modpackId);
+    playtimeLabel.innerText = formatPlaytime(minutes);
 }
 
 detectBtn.addEventListener('click', () => runAutoDetect(false));
@@ -384,9 +460,32 @@ browseBtn.addEventListener('click', async () => {
 });
 
 // --- RAM slider ---
+// Asignar más RAM de la que hay físicamente instalada no la "crea" de la
+// nada: Java falla al arrancar (o el sistema entero se ralentiza muchísimo
+// usando memoria virtual). Avisamos con un hint junto al slider en vez de
+// dejar que se entere por un crash confuso.
+
+let systemRamGb = null;
+
+window.electronAPI.getSystemMemory().then((bytes) => {
+    systemRamGb = Math.round(bytes / (1024 ** 3));
+});
+
+function updateRamHint() {
+    if (!systemRamGb) return;
+    const selected = parseInt(ramSlider.value, 10);
+    if (selected > systemRamGb) {
+        ramHint.innerText = t('main.ram.tooMuch', { total: systemRamGb });
+        ramHint.classList.add('hint-warning');
+    } else {
+        ramHint.innerText = '';
+        ramHint.classList.remove('hint-warning');
+    }
+}
 
 ramSlider.addEventListener('input', () => {
     ramValue.innerText = ramSlider.value + ' GB';
+    updateRamHint();
 });
 
 // --- Instalación activa (vanilla o modpack) ---
@@ -415,7 +514,31 @@ openModpacksBtn.addEventListener('click', () => {
     showScreen('modpacksScreen');
     loadModpacks();
     ensureReleaseVersionsLoaded();
+    refreshBackendStatus();
 });
+
+// --- Estado del servidor ---
+// El backend gratuito puede estar dormido; este puntito avisa de eso antes
+// de que el usuario intente abrir/crear un modpack y se encuentre un error.
+
+const backendStatusDotEl = backendStatusDot.querySelector('.status-dot');
+
+async function refreshBackendStatus() {
+    backendStatusDotEl.className = 'status-dot checking';
+    backendStatusText.innerText = t('backend.status.checking');
+    const result = await window.electronAPI.checkBackendStatus();
+    if (result && result.ok) {
+        backendStatusDotEl.className = 'status-dot ok';
+        backendStatusText.innerText = t('backend.status.ok');
+    } else {
+        backendStatusDotEl.className = 'status-dot down';
+        backendStatusText.innerText = t('backend.status.down');
+    }
+}
+
+setInterval(() => {
+    if (modpacksScreen.classList.contains('active')) refreshBackendStatus();
+}, 45000);
 
 backToMainBtn.addEventListener('click', () => showScreen('mainScreen'));
 
@@ -434,6 +557,7 @@ window.electronAPI.getConfig().then(async (cfg) => {
     const lang = (cfg && cfg.language) || 'es';
     languageSelect.value = lang;
     setLanguage(lang);
+    applyColorTheme((cfg && cfg.colorTheme) || 'ember');
 
     if (cfg && cfg.account) {
         renderAccount(cfg.account);
@@ -445,11 +569,6 @@ window.electronAPI.getConfig().then(async (cfg) => {
     if (cfg && cfg.curseforgeApiKey) {
         curseforgeApiKeyInput.value = cfg.curseforgeApiKey;
     }
-
-    if (cfg && cfg.discordClientId) {
-        discordClientIdInput.value = cfg.discordClientId;
-    }
-    discordEnabledCheckbox.checked = Boolean(cfg && cfg.discordEnabled);
 
     if (cfg && cfg.activeModpack) {
         document.getElementById('mainScreen').dataset.modpackActive = '1';
@@ -470,7 +589,8 @@ playBtn.addEventListener('click', () => {
 
     window.electronAPI.launchGame({
         javaPath,
-        memory: { max: maxGb + 'G', min: minGb + 'G' }
+        memory: { max: maxGb + 'G', min: minGb + 'G' },
+        customArgs: customJvmArgsInput.value
     });
 
     playBtn.innerText = t('main.playStarting');
@@ -514,6 +634,9 @@ window.electronAPI.onGameStatus((data) => {
         progressWrap.style.display = 'none';
     } else if (data.type === 'closed' || data.type === 'stopped') {
         resetToIdle();
+        window.electronAPI.getConfig().then((cfg) => {
+            updatePlaytimeLabel(cfg && cfg.activeModpack ? cfg.activeModpack.id : null);
+        });
     }
 });
 
@@ -656,9 +779,12 @@ function loaderBadgeHtml(loader, loaderVersion) {
 
 function modpackItemHtml(pack, isOwner) {
     const icon = LOADER_ICONS[pack.loader] || '📦';
+    const iconHtml = pack.cover_image
+        ? `<img src="${pack.cover_image}" alt="">`
+        : icon;
     return `
         <div class="modpack-card" data-id="${pack.id}">
-            <div class="modpack-card-icon">${icon}</div>
+            <div class="modpack-card-icon${pack.cover_image ? ' has-cover' : ''}">${iconHtml}</div>
             <div class="modpack-card-info">
                 <div class="modpack-card-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader, pack.loader_version)}</div>
                 <div class="modpack-card-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
@@ -679,27 +805,46 @@ function escapeHtml(str) {
 
 let lastLoadedModpacks = { owned: [], shared: [] };
 
+// Separado de loadModpacks() para poder re-pintar solo con el filtro del
+// buscador sin tener que volver a pedir la lista al servidor cada vez que
+// el usuario teclea.
+function renderModpackLists() {
+    const query = modpackSearchInput.value.trim().toLowerCase();
+    const matches = (p) => !query || p.name.toLowerCase().includes(query);
+    const owned = lastLoadedModpacks.owned.filter(matches);
+    const shared = lastLoadedModpacks.shared.filter(matches);
+    const emptyOwnedKey = query ? 'modpacks.search.empty' : 'modpacks.empty.owned';
+    const emptySharedKey = query ? 'modpacks.search.empty' : 'modpacks.empty.shared';
+
+    ownedModpacksList.innerHTML = owned.length
+        ? owned.map(p => modpackItemHtml(p, true)).join('')
+        : `<div class="empty-hint">${t(emptyOwnedKey)}</div>`;
+
+    sharedModpacksList.innerHTML = shared.length
+        ? shared.map(p => modpackItemHtml(p, false)).join('')
+        : `<div class="empty-hint">${t(emptySharedKey)}</div>`;
+
+    document.querySelectorAll('.manage-btn').forEach(btn => {
+        btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader));
+    });
+    document.querySelectorAll('.select-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
+    });
+}
+
+modpackSearchInput.addEventListener('input', renderModpackLists);
+
+function skeletonCardsHtml(count) {
+    return Array.from({ length: count }, () => '<div class="modpack-card-skeleton"></div>').join('');
+}
+
 async function loadModpacks() {
-    ownedModpacksList.innerHTML = `<div class="empty-hint">${t('common.loading')}</div>`;
-    sharedModpacksList.innerHTML = `<div class="empty-hint">${t('common.loading')}</div>`;
+    ownedModpacksList.innerHTML = skeletonCardsHtml(2);
+    sharedModpacksList.innerHTML = skeletonCardsHtml(2);
     try {
         const data = await window.electronAPI.getMyModpacks();
         lastLoadedModpacks = data;
-
-        ownedModpacksList.innerHTML = data.owned.length
-            ? data.owned.map(p => modpackItemHtml(p, true)).join('')
-            : `<div class="empty-hint">${t('modpacks.empty.owned')}</div>`;
-
-        sharedModpacksList.innerHTML = data.shared.length
-            ? data.shared.map(p => modpackItemHtml(p, false)).join('')
-            : `<div class="empty-hint">${t('modpacks.empty.shared')}</div>`;
-
-        document.querySelectorAll('.manage-btn').forEach(btn => {
-            btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader));
-        });
-        document.querySelectorAll('.select-btn').forEach(btn => {
-            btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
-        });
+        renderModpackLists();
 
         // Si el modpack activo ya no aparece en la lista (borrado por el
         // creador, o perdimos el acceso), lo limpiamos también aquí sin
@@ -1003,6 +1148,60 @@ repairModpackBtn.addEventListener('click', async () => {
     }
 });
 
+setCoverBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+    setCoverBtn.disabled = true;
+    try {
+        const result = await window.electronAPI.setModpackCover(currentModsModalId);
+        if (!result.cancelled) {
+            showToast(t('toast.coverUpdated'), 'info');
+        }
+    } catch (err) {
+        showToast(err.message || t('toast.coverUpdateFailed'), 'error');
+    } finally {
+        setCoverBtn.disabled = false;
+    }
+});
+
+verifyModpackBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+
+    verifyModpackBtn.disabled = true;
+    const originalText = verifyModpackBtn.innerText;
+
+    window.electronAPI.onModpackSyncProgress((data) => {
+        if (data.modpackId === currentModsModalId) {
+            verifyModpackBtn.innerText = `${data.label || ''} ${data.percent}%`;
+        }
+    });
+
+    try {
+        const result = await window.electronAPI.verifyModpackFiles(currentModsModalId);
+        showToast(t('toast.modpackVerified', { checked: result.checked, fixed: result.fixed }), 'info');
+    } catch (err) {
+        showToast(err.message || t('toast.modpackVerifyFailed'), 'error');
+    } finally {
+        verifyModpackBtn.disabled = false;
+        verifyModpackBtn.innerText = originalText;
+    }
+});
+
+exportModpackBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+
+    exportModpackBtn.disabled = true;
+    try {
+        const result = await window.electronAPI.exportModpack(currentModsModalId, currentModsModalName);
+        if (!result.cancelled) {
+            showToast(t('toast.modpackExported', { count: result.fileCount }), 'info');
+        }
+    } catch (err) {
+        showToast(err.message || t('toast.modpackExportFailed'), 'error');
+    } finally {
+        exportModpackBtn.disabled = false;
+    }
+});
+
 deleteModpackBtn.addEventListener('click', async () => {
     if (!currentModsModalId) return;
     const confirmed = confirm(t('modal.deleteConfirm', { name: currentModsModalName || '' }));
@@ -1121,16 +1320,4 @@ async function importLocalModpack(instancePath, buttonEl) {
 saveCurseforgeApiKeyBtn.addEventListener('click', async () => {
     await window.electronAPI.setCurseForgeApiKey(curseforgeApiKeyInput.value.trim());
     showToast(t('import.curseforgeKey.saved'), 'info');
-});
-
-saveDiscordConfigBtn.addEventListener('click', async () => {
-    const result = await window.electronAPI.setDiscordConfig(
-        discordClientIdInput.value.trim(),
-        discordEnabledCheckbox.checked
-    );
-    if (discordEnabledCheckbox.checked && discordClientIdInput.value.trim() && !result.connected) {
-        showToast(t('discord.connectFailed'), 'error');
-    } else {
-        showToast(t('discord.saved'), 'info');
-    }
 });

@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <div id="emberParticles" class="ember-particles"></div>
     <div class="app-shell">
         <div class="top-bar">
             <div class="brand">
@@ -16,10 +17,20 @@
                     <button id="checkUpdatesBtn" class="switch-link app-version-link"></button>
                 </div>
             </div>
-            <select id="languageSelect" class="lang-select" aria-label="Language">
-                <option value="es">Español</option>
-                <option value="en">English</option>
-            </select>
+            <div class="top-bar-controls">
+                <div class="theme-switcher" id="themeSwitcher">
+                    <button class="theme-swatch" data-theme="ember" title="Ember" style="--swatch:#ff8a3d"></button>
+                    <button class="theme-swatch" data-theme="glacier" title="Glacier" style="--swatch:#4fb3ff"></button>
+                    <button class="theme-swatch" data-theme="creeper" title="Creeper" style="--swatch:#5bd15e"></button>
+                </div>
+                <select id="languageSelect" class="lang-select" aria-label="Language">
+                    <option value="es">Español</option>
+                    <option value="en">English</option>
+                    <option value="fr">Français</option>
+                    <option value="de">Deutsch</option>
+                    <option value="pt">Português</option>
+                </select>
+            </div>
         </div>
 
         <div id="updateBanner" class="update-banner">
@@ -83,12 +94,16 @@
                     <input type="range" id="ramSlider" min="1" max="16" step="1" value="4">
                     <span class="ram-value" id="ramValue">4 GB</span>
                 </div>
+                <div id="ramHint"></div>
             </div>
 
             <div class="field modpack-field">
                 <label data-i18n="main.install.label">Instalación a jugar</label>
                 <div class="active-modpack-row">
-                    <div id="activeModpackLabel" style="font-size: 13px; color: var(--text-dim);">Vanilla · consultando última versión...</div>
+                    <div>
+                        <div id="activeModpackLabel" style="font-size: 13px; color: var(--text-dim);">Vanilla · consultando última versión...</div>
+                        <div id="playtimeLabel" class="playtime-label"></div>
+                    </div>
                     <button class="secondary" id="openModpacksBtn" data-i18n="main.install.myModpacks">Mis modpacks</button>
                 </div>
             </div>
@@ -98,18 +113,15 @@
                 <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;" data-i18n="main.stop">Detener</button>
             </div>
 
-            <button class="switch-link" id="openConsoleBtn" data-i18n="main.openConsole">Ver consola del juego</button>
+            <div class="console-link-row">
+                <button class="switch-link" id="openConsoleBtn" data-i18n="main.openConsole">Ver consola del juego</button>
+            </div>
 
             <details class="collapsible">
-                <summary data-i18n="discord.title">🎮 Discord Rich Presence (opcional)</summary>
+                <summary data-i18n="java.advanced.title">⚙️ Configuración avanzada de Java</summary>
                 <div class="collapsible-body">
-                    <p data-i18n="discord.desc">Muestra en tu perfil de Discord que estás jugando. Necesitas crear tu propia app gratuita en discord.com/developers/applications y pegar aquí su Client ID.</p>
-                    <label class="checkbox-row">
-                        <input type="checkbox" id="discordEnabledCheckbox">
-                        <span data-i18n="discord.enable">Activar</span>
-                    </label>
-                    <input type="text" id="discordClientIdInput" data-i18n-placeholder="discord.clientId.placeholder" placeholder="Client ID de tu app de Discord">
-                    <button class="secondary" id="saveDiscordConfigBtn" data-i18n="discord.save">Guardar</button>
+                    <p data-i18n="java.advanced.desc">Flags de JVM extra para lanzar el juego (por ejemplo, flags de G1GC para mejorar el rendimiento). Déjalo vacío si no sabes qué es esto.</p>
+                    <textarea id="customJvmArgsInput" class="jvm-args-textarea" data-i18n-placeholder="java.advanced.placeholder" placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled ..."></textarea>
                 </div>
             </details>
 
@@ -126,7 +138,13 @@
             <div class="modpacks-header">
                 <button class="switch-link back-link" id="backToMainBtn">&larr; <span data-i18n="modpacks.back">Volver</span></button>
                 <h3 style="margin: 0;" data-i18n="modpacks.title">Modpacks</h3>
+                <span class="backend-status" id="backendStatusDot" title="">
+                    <span class="status-dot"></span>
+                    <span id="backendStatusText" data-i18n="backend.status.checking">Comprobando servidor...</span>
+                </span>
             </div>
+
+            <input type="text" id="modpackSearchInput" class="modpack-search" data-i18n-placeholder="modpacks.search.placeholder" placeholder="Buscar modpack por nombre...">
 
             <details class="collapsible">
                 <summary data-i18n="modpacks.invite.title">🔗 Unirme con un link de invitación</summary>
@@ -221,8 +239,13 @@
                     <div id="inviteResultBox" class="invite-result"></div>
                 </div>
                 <hr class="modal-divider">
-                <button id="repairModpackBtn" class="secondary" data-i18n="modal.repair">Reparar instalación</button>
-                <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
+                <div class="button-stack">
+                    <button id="setCoverBtn" class="secondary" data-i18n="modal.setCover">Cambiar portada</button>
+                    <button id="verifyModpackBtn" class="secondary" data-i18n="modal.verify">Verificar archivos</button>
+                    <button id="repairModpackBtn" class="secondary" data-i18n="modal.repair">Reparar instalación</button>
+                    <button id="exportModpackBtn" class="secondary" data-i18n="modal.export">Exportar a .zip</button>
+                    <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
+                </div>
             </div>
         </div>
 
@@ -235,8 +258,10 @@
                 </div>
                 <div id="accountsList" class="accounts-list"></div>
                 <hr class="modal-divider">
-                <button class="secondary" id="addOfflineAccountBtn" data-i18n="accounts.addOffline">+ Añadir cuenta no premium</button>
-                <button class="secondary" id="addMicrosoftAccountBtn" data-i18n="accounts.addMicrosoft">+ Añadir cuenta Microsoft</button>
+                <div class="button-stack">
+                    <button class="secondary" id="addOfflineAccountBtn" data-i18n="accounts.addOffline">+ Añadir cuenta no premium</button>
+                    <button class="secondary" id="addMicrosoftAccountBtn" data-i18n="accounts.addMicrosoft">+ Añadir cuenta Microsoft</button>
+                </div>
             </div>
         </div>
 
