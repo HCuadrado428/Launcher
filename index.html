@@ -32,6 +32,7 @@
             <div class="modal-card card update-popup-card">
                 <h3 style="margin-top:0;" data-i18n="update.popup.title">🔥 Nueva actualización disponible</h3>
                 <p id="updatePopupMessage" data-i18n="update.popup.message">Hay una nueva versión del launcher. ¿Quieres descargarla ahora?</p>
+                <pre id="updatePopupNotes" class="update-popup-notes" style="display:none;"></pre>
                 <div class="update-popup-actions">
                     <button id="updateLaterBtn" class="secondary" data-i18n="update.popup.later">Más tarde</button>
                     <button id="updateYesBtn" data-i18n="update.popup.yes">Sí, descargar</button>
@@ -96,6 +97,21 @@
                 <button id="playBtn" data-i18n="main.play">Iniciar Juego</button>
                 <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;" data-i18n="main.stop">Detener</button>
             </div>
+
+            <button class="switch-link" id="openConsoleBtn" data-i18n="main.openConsole">Ver consola del juego</button>
+
+            <details class="collapsible">
+                <summary data-i18n="discord.title">🎮 Discord Rich Presence (opcional)</summary>
+                <div class="collapsible-body">
+                    <p data-i18n="discord.desc">Muestra en tu perfil de Discord que estás jugando. Necesitas crear tu propia app gratuita en discord.com/developers/applications y pegar aquí su Client ID.</p>
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="discordEnabledCheckbox">
+                        <span data-i18n="discord.enable">Activar</span>
+                    </label>
+                    <input type="text" id="discordClientIdInput" data-i18n-placeholder="discord.clientId.placeholder" placeholder="Client ID de tu app de Discord">
+                    <button class="secondary" id="saveDiscordConfigBtn" data-i18n="discord.save">Guardar</button>
+                </div>
+            </details>
 
             <div id="progressWrap">
                 <div class="progress-track">
@@ -205,7 +221,37 @@
                     <div id="inviteResultBox" class="invite-result"></div>
                 </div>
                 <hr class="modal-divider">
+                <button id="repairModpackBtn" class="secondary" data-i18n="modal.repair">Reparar instalación</button>
                 <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
+            </div>
+        </div>
+
+        <!-- MODAL DE CAMBIO DE CUENTA -->
+        <div id="accountsModal" class="modal-overlay">
+            <div class="modal-card card">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="accounts.title">Cuentas guardadas</h3>
+                    <button class="switch-link" id="closeAccountsModalBtn" data-i18n="modal.close">Cerrar</button>
+                </div>
+                <div id="accountsList" class="accounts-list"></div>
+                <hr class="modal-divider">
+                <button class="secondary" id="addOfflineAccountBtn" data-i18n="accounts.addOffline">+ Añadir cuenta no premium</button>
+                <button class="secondary" id="addMicrosoftAccountBtn" data-i18n="accounts.addMicrosoft">+ Añadir cuenta Microsoft</button>
+            </div>
+        </div>
+
+        <!-- MODAL DE CONSOLA DEL JUEGO -->
+        <div id="consoleModal" class="modal-overlay">
+            <div class="modal-card card console-modal-card">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="console.title">Consola del juego</h3>
+                    <button class="switch-link" id="closeConsoleModalBtn" data-i18n="modal.close">Cerrar</button>
+                </div>
+                <pre id="consoleLogBox" class="console-log-box"></pre>
+                <div class="console-actions">
+                    <button class="secondary" id="copyLogBtn" data-i18n="console.copy">Copiar log</button>
+                    <button class="secondary" id="clearLogBtn" data-i18n="console.clear">Limpiar</button>
+                </div>
             </div>
         </div>
 

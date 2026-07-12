@@ -1,7 +1,8 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const launcher = new Client();
 
@@ -32,6 +33,13 @@ try {
     ({ Auth } = require('msmc'));
 } catch (err) {
     console.warn('[WARN] msmc no está instalado. Ejecuta "npm install" para poder usar el login con Microsoft.');
+}
+
+let DiscordRPC = null;
+try {
+    DiscordRPC = require('@xhayper/discord-rpc');
+} catch (err) {
+    console.warn('[WARN] @xhayper/discord-rpc no está instalado. Ejecuta "npm install" para poder usar Discord Rich Presence.');
 }
 
 let mainWindow;
@@ -164,6 +172,45 @@ function findNewestJava() {
     if (candidates.length === 0) return null;
     candidates.sort((a, b) => compareVersionArrays(b.version, a.version));
     return candidates[0].path;
+}
+
+// ============================================================================
+// COMPATIBILIDAD DE JAVA (aviso antes de lanzar, no bloqueante)
+// ============================================================================
+
+// Requisitos oficiales de Mojang: qué versión de Java hace falta como mínimo
+// para cada rango de versiones de Minecraft.
+const JAVA_REQUIREMENTS = [
+    { maxVersion: [1, 16, 5], javaMajor: 8 },
+    { maxVersion: [1, 17, 1], javaMajor: 16 },
+    { maxVersion: [1, 20, 4], javaMajor: 17 }
+    // Cualquier versión más nueva que 1.20.4 requiere Java 21+.
+];
+
+function requiredJavaMajorFor(mcVersion) {
+    const v = parseVersionFromDirName(mcVersion);
+    for (const req of JAVA_REQUIREMENTS) {
+        if (compareVersionArrays(v, req.maxVersion) <= 0) return req.javaMajor;
+    }
+    return 21;
+}
+
+// Devuelve el "major" de la instalación de Java indicada (8, 17, 21...) o
+// null si no se pudo determinar (ruta inválida, binario que no responde,
+// formato de salida inesperado...). Nunca rechaza la promesa: esto es solo
+// un aviso informativo, no debe poder bloquear el lanzamiento del juego.
+function getInstalledJavaMajor(javaPath) {
+    return new Promise((resolve) => {
+        execFile(javaPath, ['-version'], (err, stdout, stderr) => {
+            const output = `${stdout || ''}${stderr || ''}`;
+            const match = output.match(/version "(\d+)(?:\.(\d+))?/);
+            if (!match) return resolve(null);
+            // Formato antiguo "1.8.0_xxx" -> Java 8; formato moderno "17.0.1" -> Java 17.
+            let major = parseInt(match[1], 10);
+            if (major === 1 && match[2]) major = parseInt(match[2], 10);
+            resolve(major);
+        });
+    });
 }
 
 // ============================================================================
@@ -628,6 +675,31 @@ async function downloadModFile(modpackId, mod, destPath) {
     fs.writeFileSync(destPath, buffer);
 }
 
+function formatBytesMain(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = -1;
+    do {
+        value /= 1024;
+        unitIndex++;
+    } while (value >= 1024 && unitIndex < units.length - 1);
+    return `${value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+// Espacio libre en el disco que contiene targetPath, en bytes, o null si no
+// se pudo determinar (p.ej. Node sin fs.statfsSync, o ruta inexistente). Es
+// solo un aviso preventivo, así que nunca debe poder romper el flujo normal.
+function getFreeDiskSpaceBytes(targetPath) {
+    try {
+        fs.mkdirSync(targetPath, { recursive: true });
+        const stats = fs.statfsSync(targetPath);
+        return stats.bavail * stats.bsize;
+    } catch (err) {
+        return null;
+    }
+}
+
 // Compara el manifiesto del servidor con lo que hay en disco y descarga /
 // borra lo que haga falta. Emite progreso a la ventana mientras trabaja.
 async function syncModpack(modpackId) {
@@ -649,6 +721,43 @@ async function syncModpack(modpackId) {
         const local = localById.get(m.id);
         return !local || local.sha1 !== m.sha1;
     });
+
+    // Loader/versión que hará falta instalar (calculado ya aquí, y no más
+    // abajo como antes, porque el chequeo de espacio en disco necesita saber
+    // si hay que contar el hueco extra que ocupa instalar Forge/Fabric).
+    const loader = manifest.loader || 'vanilla';
+    const requestedLoaderVersion = manifest.loader_version || '';
+    let loaderVersionId = localMeta.loader_version_id || null;
+    const versionJsonPath = loaderVersionId
+        ? path.join(instanceDir(modpackId), 'versions', loaderVersionId, `${loaderVersionId}.json`)
+        : null;
+    const needsLoaderInstall = loader !== 'vanilla' && (
+        localMeta.loader !== loader ||
+        localMeta.mc_version !== manifest.mc_version ||
+        (localMeta.requested_loader_version || '') !== requestedLoaderVersion ||
+        !loaderVersionId ||
+        !fs.existsSync(versionJsonPath)
+    );
+
+    const totalDownloadBytes = toDownload.reduce((sum, m) => sum + (m.filesize || 0), 0);
+    if (mainWindow && totalDownloadBytes > 0) {
+        mainWindow.webContents.send('modpack-download-estimate', {
+            modpackId,
+            totalBytes: totalDownloadBytes,
+            fileCount: toDownload.length
+        });
+    }
+
+    // El instalador de Forge/Fabric descarga sus propias librerías y assets
+    // vanilla (puede rondar varios cientos de MB), así que sumamos un colchón
+    // aproximado al comprobar espacio libre, además de un margen de seguridad.
+    const LOADER_INSTALL_BUFFER_BYTES = 700 * 1024 * 1024;
+    const SAFETY_MARGIN_BYTES = 200 * 1024 * 1024;
+    const requiredBytes = totalDownloadBytes + (needsLoaderInstall ? LOADER_INSTALL_BUFFER_BYTES : 0) + SAFETY_MARGIN_BYTES;
+    const freeBytes = getFreeDiskSpaceBytes(INSTANCES_DIR);
+    if (freeBytes !== null && freeBytes < requiredBytes) {
+        throw new Error(`No hay suficiente espacio en disco: hacen falta unos ${formatBytesMain(requiredBytes)} y solo quedan ${formatBytesMain(freeBytes)} libres.`);
+    }
 
     const totalSteps = toDelete.length + toDownload.length;
     let doneSteps = 0;
@@ -677,22 +786,9 @@ async function syncModpack(modpackId) {
         sendProgress(`Descargando ${mod.filename}...`);
     }
 
-    // Instalamos Forge/Fabric si hace falta. Se cachea vía .launcher-meta.json
-    // para no reinstalar el loader en cada sincronización si no ha cambiado.
-    const loader = manifest.loader || 'vanilla';
-    const requestedLoaderVersion = manifest.loader_version || '';
-    let loaderVersionId = localMeta.loader_version_id || null;
-    const versionJsonPath = loaderVersionId
-        ? path.join(instanceDir(modpackId), 'versions', loaderVersionId, `${loaderVersionId}.json`)
-        : null;
-    const needsLoaderInstall = loader !== 'vanilla' && (
-        localMeta.loader !== loader ||
-        localMeta.mc_version !== manifest.mc_version ||
-        (localMeta.requested_loader_version || '') !== requestedLoaderVersion ||
-        !loaderVersionId ||
-        !fs.existsSync(versionJsonPath)
-    );
-
+    // Instalamos Forge/Fabric si hace falta (needsLoaderInstall se calculó
+    // arriba). Se cachea vía .launcher-meta.json para no reinstalar el
+    // loader en cada sincronización si no ha cambiado.
     if (needsLoaderInstall) {
         if (mainWindow) mainWindow.webContents.send('modpack-sync-progress', { label: `Instalando ${loader}...`, percent: 0, modpackId });
         loaderVersionId = await installLoaderForInstance(modpackId, manifest.mc_version, loader, requestedLoaderVersion);
@@ -721,6 +817,67 @@ async function syncModpack(modpackId) {
 }
 
 // ============================================================================
+// NOTIFICACIONES NATIVAS DE WINDOWS
+// ============================================================================
+
+// Avisan aunque el launcher esté minimizado o detrás de otras ventanas
+// (actualización lista para instalar, juego cerrado con error).
+function notify(title, body) {
+    if (!Notification.isSupported()) return;
+    new Notification({ title, body }).show();
+}
+
+// ============================================================================
+// DISCORD RICH PRESENCE (opcional, requiere que el usuario ponga su propio
+// Client ID de una app creada en discord.com/developers/applications)
+// ============================================================================
+
+let discordClient = null;
+let discordConnected = false;
+
+// Se conecta con el cliente de Discord instalado en local vía IPC. Si
+// Discord no está abierto, o el usuario no ha puesto un Client ID válido,
+// falla en silencio: esto es un extra cosmético, nunca debe romper nada.
+async function setupDiscordRPC() {
+    if (discordClient) {
+        try { await discordClient.destroy(); } catch (err) { /* ya estaba desconectado */ }
+        discordClient = null;
+        discordConnected = false;
+    }
+
+    if (!DiscordRPC) return;
+    const cfg = loadConfig();
+    if (!cfg.discordEnabled || !cfg.discordClientId) return;
+
+    try {
+        const client = new DiscordRPC.Client({ clientId: cfg.discordClientId });
+        client.on('ready', () => { discordConnected = true; });
+        client.on('disconnected', () => { discordConnected = false; });
+        await client.login();
+        discordClient = client;
+    } catch (err) {
+        console.warn('[WARN] No se pudo conectar con Discord Rich Presence (¿tienes Discord abierto?):', err && err.message ? err.message : err);
+        discordClient = null;
+    }
+}
+
+function setDiscordActivity(details, state) {
+    if (!discordClient || !discordConnected || !discordClient.user) return;
+    discordClient.user.setActivity({ details, state, startTimestamp: new Date() }).catch(() => { /* presencia es solo cosmética */ });
+}
+
+function clearDiscordActivity() {
+    if (!discordClient || !discordConnected || !discordClient.user) return;
+    discordClient.user.clearActivity().catch(() => { /* presencia es solo cosmética */ });
+}
+
+ipcMain.handle('set-discord-config', async (event, { clientId, enabled }) => {
+    saveConfig({ discordClientId: (clientId || '').trim(), discordEnabled: Boolean(enabled) });
+    await setupDiscordRPC();
+    return { connected: discordConnected };
+});
+
+// ============================================================================
 // AUTO-ACTUALIZACIÓN (electron-updater + GitHub Releases)
 // ============================================================================
 
@@ -745,10 +902,26 @@ function setupAutoUpdates() {
         if (mainWindow) mainWindow.webContents.send('update-status', { type, ...extra });
     };
 
-    autoUpdater.on('update-available', (info) => send('available', { version: info.version }));
+    autoUpdater.on('update-available', (info) => {
+        // info.releaseNotes puede venir como string (un solo release) o como
+        // array de {version, note} (varios releases desde la instalada); lo
+        // normalizamos siempre a texto plano para que el renderer no tenga
+        // que preocuparse por el formato.
+        let releaseNotes = '';
+        if (typeof info.releaseNotes === 'string') {
+            releaseNotes = info.releaseNotes;
+        } else if (Array.isArray(info.releaseNotes)) {
+            releaseNotes = info.releaseNotes.map((n) => n.note || '').join('\n\n');
+        }
+        releaseNotes = releaseNotes.replace(/<[^>]+>/g, '').trim();
+        send('available', { version: info.version, releaseNotes });
+    });
     autoUpdater.on('update-not-available', () => send('not-available'));
     autoUpdater.on('download-progress', (progress) => send('downloading', { percent: Math.round(progress.percent) }));
-    autoUpdater.on('update-downloaded', (info) => send('downloaded', { version: info.version }));
+    autoUpdater.on('update-downloaded', (info) => {
+        send('downloaded', { version: info.version });
+        notify('Ember Launcher', `La actualización v${info.version} está lista. Reinicia el launcher para instalarla.`);
+    });
     autoUpdater.on('error', (err) => {
         const message = err && err.message ? err.message : String(err);
         console.warn('[WARN] Error comprobando actualizaciones:', message);
@@ -848,6 +1021,7 @@ if (!gotLock) {
 
         createWindow();
         setupAutoUpdates();
+        setupDiscordRPC();
 
         // En Windows/Linux, si la app se abrió directamente desde un link,
         // el link viene como argumento en process.argv.
@@ -865,7 +1039,10 @@ if (!gotLock) {
 // ============================================================================
 
 launcher.on('debug', (e) => console.log(`[DEBUG] ${e}`));
-launcher.on('data', (e) => console.log(`[GAME] ${e}`));
+launcher.on('data', (e) => {
+    console.log(`[GAME] ${e}`);
+    if (mainWindow) mainWindow.webContents.send('game-log', String(e));
+});
 
 launcher.on('progress', (e) => {
     if (mainWindow) mainWindow.webContents.send('game-progress', e);
@@ -880,6 +1057,10 @@ launcher.on('close', (code) => {
     if (mainWindow) {
         mainWindow.webContents.send('game-status', { type: 'closed', code });
     }
+    clearDiscordActivity();
+    if (code !== 0) {
+        notify('Ember Launcher', `Minecraft se cerró inesperadamente (código ${code}). Revisa la consola del juego para más detalles.`);
+    }
 });
 
 // ============================================================================
@@ -888,15 +1069,47 @@ launcher.on('close', (code) => {
 
 ipcMain.handle('get-config', () => loadConfig());
 
+// RAM y ruta de Java guardadas por modpack (o "vanilla" si no hay ninguno
+// activo), en vez de un único valor global. Si el modpack pedido no tiene
+// ajustes propios todavía, se cae al valor global (compatibilidad con
+// configuraciones guardadas antes de que existiera esto).
+ipcMain.handle('get-target-settings', (event, { modpackId }) => {
+    const cfg = loadConfig();
+    const key = modpackId || 'vanilla';
+    const saved = (cfg.perModpackSettings && cfg.perModpackSettings[key]) || {};
+    return {
+        javaPath: saved.javaPath || cfg.javaPath || '',
+        memory: saved.memory || cfg.memory || null
+    };
+});
+
 ipcMain.handle('get-backend-url', () => getBackendUrl());
 ipcMain.handle('set-backend-url', (event, url) => saveConfig({ backendUrl: url }));
 
+// Añade/actualiza una cuenta en la lista guardada, identificándola por su
+// "id" (estable entre sesiones: el uuid de Xbox para Microsoft, el nombre en
+// minúsculas para offline). Repetir login con la misma identidad actualiza
+// la entrada existente en vez de duplicarla.
+function upsertAccount(accounts, account) {
+    return [...accounts.filter((a) => a.id !== account.id), account];
+}
+
+// Lo que ve el renderer de cada cuenta guardada: nunca el token/auth interno,
+// solo lo necesario para pintar la lista y poder pedir el cambio por id.
+function toPublicAccount(account) {
+    return { id: account.id, type: account.type, username: account.username, uuid: account.uuid || null };
+}
+
 ipcMain.handle('login-offline', (event, username) => {
-    const account = { type: 'offline', username: username || 'Jugador' };
+    const name = (username || 'Jugador').trim() || 'Jugador';
+    const account = { id: `offline:${name.toLowerCase()}`, type: 'offline', username: name };
+
+    const cfg = loadConfig();
+    const accounts = upsertAccount(cfg.accounts || [], account);
     // Las cuentas offline no pueden usar el sistema de modpacks (necesitamos
     // una identidad verificada de Microsoft para dar acceso por usuario), así
     // que al cambiar a offline limpiamos cualquier sesión de servidor previa.
-    saveConfig({ account, session: null, activeModpack: null });
+    saveConfig({ account, session: null, activeModpack: null, accounts, activeAccountId: account.id });
     return account;
 });
 
@@ -915,18 +1128,22 @@ ipcMain.handle('login-microsoft', async () => {
         const mclcAuth = token.mclc();
 
         const account = {
+            id: `ms:${mclcAuth.uuid}`,
             type: 'microsoft',
             username: mclcAuth.name,
             uuid: mclcAuth.uuid,
             auth: mclcAuth
         };
 
-        saveConfig({ account });
-
         // Además de guardar la cuenta para jugar, verificamos la sesión
         // contra el backend de modpacks para poder crear/unirnos a modpacks.
+        // Esa sesión se guarda también dentro de la cuenta para poder
+        // restaurarla sin volver a loguear si el usuario cambia de cuenta y
+        // luego vuelve a esta.
+        let session = null;
         try {
-            await verifySessionWithBackend(mclcAuth.access_token);
+            const verified = await verifySessionWithBackend(mclcAuth.access_token);
+            session = { token: verified.token, uuid: verified.uuid, username: verified.username };
         } catch (err) {
             console.warn('[WARN] No se pudo verificar la sesión con el backend de modpacks:', err.message);
             // No bloqueamos el login normal por esto: el usuario puede jugar
@@ -934,7 +1151,11 @@ ipcMain.handle('login-microsoft', async () => {
             // esté disponible.
         }
 
-        return { success: true, account: { type: 'microsoft', username: account.username, uuid: account.uuid } };
+        const cfg = loadConfig();
+        const accounts = upsertAccount(cfg.accounts || [], { ...account, session });
+        saveConfig({ account, session, accounts, activeAccountId: account.id });
+
+        return { success: true, account: toPublicAccount(account) };
     } catch (err) {
         console.error('[ERROR] Login con Microsoft fallido:', err);
         return {
@@ -949,8 +1170,42 @@ ipcMain.handle('logout', () => {
     delete cfg.account;
     cfg.session = null;
     cfg.activeModpack = null;
+    cfg.activeAccountId = null;
     saveConfig(cfg);
     return true;
+});
+
+ipcMain.handle('get-accounts', () => {
+    const cfg = loadConfig();
+    return (cfg.accounts || []).map(toPublicAccount);
+});
+
+ipcMain.handle('switch-account', (event, { id }) => {
+    const cfg = loadConfig();
+    const found = (cfg.accounts || []).find((a) => a.id === id);
+    if (!found) throw new Error('Esa cuenta ya no está guardada. Vuelve a iniciar sesión.');
+
+    const account = { id: found.id, type: found.type, username: found.username, uuid: found.uuid, auth: found.auth };
+    // Cambiar de cuenta implica soltar el modpack activo: los modpacks están
+    // ligados a la identidad de Microsoft que los creó/tiene acceso, y una
+    // cuenta offline no puede usarlos en absoluto.
+    saveConfig({ account, session: found.session || null, activeModpack: null, activeAccountId: found.id });
+    return toPublicAccount(account);
+});
+
+ipcMain.handle('remove-account', (event, { id }) => {
+    const cfg = loadConfig();
+    const accounts = (cfg.accounts || []).filter((a) => a.id !== id);
+    const patch = { accounts };
+    const wasActive = cfg.activeAccountId === id;
+    if (wasActive) {
+        patch.account = null;
+        patch.session = null;
+        patch.activeAccountId = null;
+        patch.activeModpack = null;
+    }
+    saveConfig(patch);
+    return { removedActive: wasActive };
 });
 
 ipcMain.handle('select-java-path', async () => {
@@ -1122,6 +1377,14 @@ ipcMain.handle('modpacks-sync', async (event, { id }) => {
     return syncModpack(id);
 });
 
+// "Reparar instalación": borra la carpeta local de la instancia (mods, loader
+// instalado, meta de sincronización...) y vuelve a sincronizar desde cero,
+// por si algo se corrompió y una sincronización normal no lo arregla.
+ipcMain.handle('modpacks-repair', async (event, { id }) => {
+    fs.rmSync(instanceDir(id), { recursive: true, force: true });
+    return syncModpack(id);
+});
+
 ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader, loaderVersion }) => {
     saveConfig({
         activeModpack: id
@@ -1156,7 +1419,10 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
         return;
     }
 
-    saveConfig({ javaPath: finalJavaPath, memory });
+    const targetKey = (cfg.activeModpack && cfg.activeModpack.id) || 'vanilla';
+    const perModpackSettings = { ...(cfg.perModpackSettings || {}) };
+    perModpackSettings[targetKey] = { javaPath: finalJavaPath, memory };
+    saveConfig({ javaPath: finalJavaPath, memory, perModpackSettings });
 
     const authorization = account.type === 'microsoft'
         ? account.auth
@@ -1201,6 +1467,15 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
         mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
     }
 
+    const requiredJavaMajor = requiredJavaMajorFor(versionNumber);
+    const installedJavaMajor = await getInstalledJavaMajor(finalJavaPath);
+    if (installedJavaMajor && installedJavaMajor < requiredJavaMajor) {
+        mainWindow.webContents.send('game-status', {
+            type: 'java-warning',
+            message: `Minecraft ${versionNumber} necesita Java ${requiredJavaMajor} o superior, pero la ruta de Java seleccionada es la ${installedJavaMajor}. El juego podría no arrancar; puedes cambiarla arriba o pulsar "Detectar".`
+        });
+    }
+
     let opts = {
         clientPackage: null,
         authorization,
@@ -1219,6 +1494,10 @@ ipcMain.on('launch-game', async (event, { javaPath, memory }) => {
     try {
         gameProcess = await launcher.launch(opts);
         mainWindow.webContents.send('game-status', { type: 'launched' });
+        setDiscordActivity(
+            activeModpack ? `Jugando ${activeModpack.name}` : 'Jugando Minecraft vanilla',
+            `Minecraft ${versionNumber}`
+        );
     } catch (err) {
         console.error('[ERROR] Fallo al lanzar el juego:', err);
         gameProcess = null;

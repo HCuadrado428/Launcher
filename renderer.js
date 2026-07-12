@@ -9,6 +9,7 @@ const updateBannerText = document.getElementById('updateBannerText');
 const updateRestartBtn = document.getElementById('updateRestartBtn');
 const updateModal = document.getElementById('updateModal');
 const updatePopupMessage = document.getElementById('updatePopupMessage');
+const updatePopupNotes = document.getElementById('updatePopupNotes');
 const updateYesBtn = document.getElementById('updateYesBtn');
 const updateLaterBtn = document.getElementById('updateLaterBtn');
 const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
@@ -22,6 +23,12 @@ const accountName = document.getElementById('accountName');
 const accountType = document.getElementById('accountType');
 const switchAccountBtn = document.getElementById('switchAccountBtn');
 
+const accountsModal = document.getElementById('accountsModal');
+const accountsList = document.getElementById('accountsList');
+const closeAccountsModalBtn = document.getElementById('closeAccountsModalBtn');
+const addOfflineAccountBtn = document.getElementById('addOfflineAccountBtn');
+const addMicrosoftAccountBtn = document.getElementById('addMicrosoftAccountBtn');
+
 const javaPathInput = document.getElementById('javaPath');
 const browseBtn = document.getElementById('browseBtn');
 const detectBtn = document.getElementById('detectBtn');
@@ -32,6 +39,15 @@ const ramValue = document.getElementById('ramValue');
 
 const playBtn = document.getElementById('playBtn');
 const stopBtn = document.getElementById('stopBtn');
+const openConsoleBtn = document.getElementById('openConsoleBtn');
+const discordEnabledCheckbox = document.getElementById('discordEnabledCheckbox');
+const discordClientIdInput = document.getElementById('discordClientIdInput');
+const saveDiscordConfigBtn = document.getElementById('saveDiscordConfigBtn');
+const consoleModal = document.getElementById('consoleModal');
+const consoleLogBox = document.getElementById('consoleLogBox');
+const closeConsoleModalBtn = document.getElementById('closeConsoleModalBtn');
+const copyLogBtn = document.getElementById('copyLogBtn');
+const clearLogBtn = document.getElementById('clearLogBtn');
 const progressWrap = document.getElementById('progressWrap');
 const progressFill = document.getElementById('progressFill');
 const progressLabel = document.getElementById('progressLabel');
@@ -74,12 +90,25 @@ const closeModsModalBtn = document.getElementById('closeModsModalBtn');
 const generateInviteBtn = document.getElementById('generateInviteBtn');
 const inviteResultBox = document.getElementById('inviteResultBox');
 const deleteModpackBtn = document.getElementById('deleteModpackBtn');
+const repairModpackBtn = document.getElementById('repairModpackBtn');
 
 let currentAccount = null;
 let currentModsModalId = null;
 let currentModsModalName = null;
 let currentModsModalMcVersion = null;
 let currentModsModalLoader = null;
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = -1;
+    do {
+        value /= 1024;
+        unitIndex++;
+    } while (value >= 1024 && unitIndex < units.length - 1);
+    return `${value.toFixed(1)} ${units[unitIndex]}`;
+}
 
 function showToast(message, type) {
     const el = document.createElement('div');
@@ -144,6 +173,12 @@ window.electronAPI.onUpdateStatus((data) => {
         manualUpdateCheckInFlight = false;
         pendingUpdateVersion = data.version;
         updatePopupMessage.innerText = t('update.popup.message', { version: data.version });
+        if (data.releaseNotes) {
+            updatePopupNotes.innerText = data.releaseNotes;
+            updatePopupNotes.style.display = '';
+        } else {
+            updatePopupNotes.style.display = 'none';
+        }
         updateModal.classList.add('active');
     } else if (data.type === 'not-available') {
         if (manualUpdateCheckInFlight) {
@@ -231,8 +266,73 @@ msLoginBtn.addEventListener('click', async () => {
     }
 });
 
+// --- Multi-cuenta ---
+
+async function renderAccountsList() {
+    const accounts = await window.electronAPI.getAccounts();
+    if (accounts.length === 0) {
+        accountsList.innerHTML = `<div class="empty-hint">${t('accounts.empty')}</div>`;
+        return;
+    }
+    accountsList.innerHTML = accounts.map((a) => `
+        <div class="account-row ${currentAccount && currentAccount.id === a.id ? 'active' : ''}" data-id="${a.id}">
+            <div class="account-row-info">
+                <div class="account-row-name">${a.username}</div>
+                <div class="account-row-type">${a.type === 'microsoft' ? t('account.ms') : t('account.offline')}</div>
+            </div>
+            <button class="secondary use-account-btn" data-id="${a.id}" ${currentAccount && currentAccount.id === a.id ? 'disabled' : ''}>${t('accounts.use')}</button>
+            <button class="danger remove-account-btn" data-id="${a.id}">${t('accounts.remove')}</button>
+        </div>
+    `).join('');
+}
+
 switchAccountBtn.addEventListener('click', async () => {
-    await window.electronAPI.logout();
+    await renderAccountsList();
+    accountsModal.classList.add('active');
+});
+
+closeAccountsModalBtn.addEventListener('click', () => {
+    accountsModal.classList.remove('active');
+});
+
+accountsList.addEventListener('click', async (e) => {
+    const useBtn = e.target.closest('.use-account-btn');
+    const removeBtn = e.target.closest('.remove-account-btn');
+
+    if (useBtn) {
+        try {
+            const account = await window.electronAPI.switchAccount(useBtn.dataset.id);
+            renderAccount(account);
+            document.getElementById('mainScreen').dataset.modpackActive = '';
+            updateActiveModpackLabel(null);
+            await applyTargetSettings(null);
+            accountsModal.classList.remove('active');
+            showScreen('mainScreen');
+            showToast(t('toast.loggedIn', { name: account.username }), 'info');
+        } catch (err) {
+            showToast(err.message || t('accounts.switchFailed'), 'error');
+        }
+    } else if (removeBtn) {
+        const confirmed = confirm(t('accounts.removeConfirm'));
+        if (!confirmed) return;
+        const result = await window.electronAPI.removeAccount(removeBtn.dataset.id);
+        if (result.removedActive) {
+            currentAccount = null;
+            accountsModal.classList.remove('active');
+            showScreen('loginScreen');
+        } else {
+            await renderAccountsList();
+        }
+    }
+});
+
+addOfflineAccountBtn.addEventListener('click', () => {
+    accountsModal.classList.remove('active');
+    showScreen('loginScreen');
+});
+
+addMicrosoftAccountBtn.addEventListener('click', () => {
+    accountsModal.classList.remove('active');
     showScreen('loginScreen');
 });
 
@@ -248,6 +348,29 @@ async function runAutoDetect(silent) {
         javaHint.innerText = t('toast.javaNotFound');
     }
     return detected;
+}
+
+// La RAM y la ruta de Java se guardan por modpack (o para "vanilla" si no
+// hay ninguno activo), así que hay que refrescar estos campos cada vez que
+// cambia la instalación activa: un modpack pesado puede necesitar más RAM
+// que vanilla, o un Java distinto si usa un loader antiguo.
+async function applyTargetSettings(modpackId) {
+    const settings = await window.electronAPI.getTargetSettings(modpackId);
+
+    if (settings && settings.javaPath) {
+        javaPathInput.value = settings.javaPath;
+    } else {
+        javaPathInput.value = '';
+        await runAutoDetect(true);
+    }
+
+    if (settings && settings.memory && settings.memory.max) {
+        const gb = parseInt(settings.memory.max, 10);
+        ramSlider.value = isNaN(gb) ? 4 : gb;
+    } else {
+        ramSlider.value = 4;
+    }
+    ramValue.innerText = ramSlider.value + ' GB';
 }
 
 detectBtn.addEventListener('click', () => runAutoDetect(false));
@@ -300,6 +423,7 @@ useVanillaBtn.addEventListener('click', async () => {
     await window.electronAPI.selectActiveModpack(null, null, null, null);
     document.getElementById('mainScreen').dataset.modpackActive = '';
     updateActiveModpackLabel(null);
+    await applyTargetSettings(null);
     showToast(t('toast.vanillaSelected'), 'info');
     showScreen('mainScreen');
 });
@@ -318,23 +442,14 @@ window.electronAPI.getConfig().then(async (cfg) => {
         showScreen('loginScreen');
     }
 
-    if (cfg && cfg.javaPath) {
-        javaPathInput.value = cfg.javaPath;
-    } else {
-        await runAutoDetect(true);
-    }
-
     if (cfg && cfg.curseforgeApiKey) {
         curseforgeApiKeyInput.value = cfg.curseforgeApiKey;
     }
 
-    if (cfg && cfg.memory && cfg.memory.max) {
-        const gb = parseInt(cfg.memory.max, 10);
-        if (!isNaN(gb)) {
-            ramSlider.value = gb;
-            ramValue.innerText = gb + ' GB';
-        }
+    if (cfg && cfg.discordClientId) {
+        discordClientIdInput.value = cfg.discordClientId;
     }
+    discordEnabledCheckbox.checked = Boolean(cfg && cfg.discordEnabled);
 
     if (cfg && cfg.activeModpack) {
         document.getElementById('mainScreen').dataset.modpackActive = '1';
@@ -342,6 +457,8 @@ window.electronAPI.getConfig().then(async (cfg) => {
     } else {
         updateActiveModpackLabel(null);
     }
+
+    await applyTargetSettings(cfg && cfg.activeModpack ? cfg.activeModpack.id : null);
 });
 
 // --- Jugar / detener ---
@@ -363,6 +480,9 @@ playBtn.addEventListener('click', () => {
     progressWrap.style.display = 'block';
     progressFill.style.width = '0%';
     progressLabel.innerText = t('main.progress.preparing');
+
+    gameLogLines = [];
+    consoleLogBox.innerText = '';
 });
 
 stopBtn.addEventListener('click', () => {
@@ -382,6 +502,8 @@ window.electronAPI.onGameStatus((data) => {
     } else if (data.type === 'error') {
         showToast(data.message, 'error');
         resetToIdle();
+    } else if (data.type === 'java-warning') {
+        showToast(data.message, 'warning');
     } else if (data.type === 'modpack-removed') {
         showToast(data.message, 'error');
         document.getElementById('mainScreen').dataset.modpackActive = '';
@@ -416,9 +538,58 @@ window.electronAPI.onGameProgress((data) => {
     }
 });
 
+// --- Consola del juego ---
+// Se guarda un buffer aparte del DOM (limitado a 2000 líneas) para no perder
+// nada aunque el modal esté cerrado mientras el juego escribe en su salida.
+
+const GAME_LOG_MAX_LINES = 2000;
+let gameLogLines = [];
+
+window.electronAPI.onGameLog((line) => {
+    gameLogLines.push(line);
+    if (gameLogLines.length > GAME_LOG_MAX_LINES) {
+        gameLogLines.splice(0, gameLogLines.length - GAME_LOG_MAX_LINES);
+    }
+    if (consoleModal.classList.contains('active')) {
+        consoleLogBox.innerText = gameLogLines.join('');
+        consoleLogBox.scrollTop = consoleLogBox.scrollHeight;
+    }
+});
+
+openConsoleBtn.addEventListener('click', () => {
+    consoleLogBox.innerText = gameLogLines.join('');
+    consoleModal.classList.add('active');
+    consoleLogBox.scrollTop = consoleLogBox.scrollHeight;
+});
+
+closeConsoleModalBtn.addEventListener('click', () => {
+    consoleModal.classList.remove('active');
+});
+
+copyLogBtn.addEventListener('click', async () => {
+    try {
+        await navigator.clipboard.writeText(gameLogLines.join(''));
+        showToast(t('console.copied'), 'info');
+    } catch (err) {
+        showToast(t('console.copyError'), 'error');
+    }
+});
+
+clearLogBtn.addEventListener('click', () => {
+    gameLogLines = [];
+    consoleLogBox.innerText = '';
+});
+
 // ============================================================================
 // MODPACKS
 // ============================================================================
+
+// Aviso puntual (no ligado a la barra de progreso, que enseguida pasa a
+// mostrar "Descargando X..." archivo a archivo) de cuánto se va a descargar
+// en total, útil para conexiones lentas o limitadas.
+window.electronAPI.onModpackDownloadEstimate((data) => {
+    showToast(t('toast.downloadEstimate', { size: formatBytes(data.totalBytes), count: data.fileCount }), 'info');
+});
 
 let releaseVersionsCache = null;
 
@@ -613,6 +784,7 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, 
         await window.electronAPI.selectActiveModpack(id, name, mcVersion, loader, resolvedLoaderVersion);
         document.getElementById('mainScreen').dataset.modpackActive = '1';
         updateActiveModpackLabel({ name, mc_version: mcVersion, loader, loader_version: resolvedLoaderVersion });
+        await applyTargetSettings(id);
         showToast(t('toast.modpackReady', { name }), 'info');
         showScreen('mainScreen');
     } catch (err) {
@@ -806,6 +978,31 @@ generateInviteBtn.addEventListener('click', async () => {
     }
 });
 
+repairModpackBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+    const confirmed = confirm(t('modal.repairConfirm', { name: currentModsModalName || '' }));
+    if (!confirmed) return;
+
+    repairModpackBtn.disabled = true;
+    const originalText = repairModpackBtn.innerText;
+
+    window.electronAPI.onModpackSyncProgress((data) => {
+        if (data.modpackId === currentModsModalId) {
+            repairModpackBtn.innerText = `${data.label || ''} ${data.percent}%`;
+        }
+    });
+
+    try {
+        await window.electronAPI.repairModpack(currentModsModalId);
+        showToast(t('toast.modpackRepaired'), 'info');
+    } catch (err) {
+        showToast(err.message || t('toast.modpackRepairFailed'), 'error');
+    } finally {
+        repairModpackBtn.disabled = false;
+        repairModpackBtn.innerText = originalText;
+    }
+});
+
 deleteModpackBtn.addEventListener('click', async () => {
     if (!currentModsModalId) return;
     const confirmed = confirm(t('modal.deleteConfirm', { name: currentModsModalName || '' }));
@@ -924,4 +1121,16 @@ async function importLocalModpack(instancePath, buttonEl) {
 saveCurseforgeApiKeyBtn.addEventListener('click', async () => {
     await window.electronAPI.setCurseForgeApiKey(curseforgeApiKeyInput.value.trim());
     showToast(t('import.curseforgeKey.saved'), 'info');
+});
+
+saveDiscordConfigBtn.addEventListener('click', async () => {
+    const result = await window.electronAPI.setDiscordConfig(
+        discordClientIdInput.value.trim(),
+        discordEnabledCheckbox.checked
+    );
+    if (discordEnabledCheckbox.checked && discordClientIdInput.value.trim() && !result.connected) {
+        showToast(t('discord.connectFailed'), 'error');
+    } else {
+        showToast(t('discord.saved'), 'info');
+    }
 });

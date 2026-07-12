@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
     // Config general
     getConfig: () => ipcRenderer.invoke('get-config'),
+    getTargetSettings: (modpackId) => ipcRenderer.invoke('get-target-settings', { modpackId }),
     getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
     setBackendUrl: (url) => ipcRenderer.invoke('set-backend-url', url),
 
@@ -10,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     loginOffline: (username) => ipcRenderer.invoke('login-offline', username),
     loginMicrosoft: () => ipcRenderer.invoke('login-microsoft'),
     logout: () => ipcRenderer.invoke('logout'),
+    getAccounts: () => ipcRenderer.invoke('get-accounts'),
+    switchAccount: (id) => ipcRenderer.invoke('switch-account', { id }),
+    removeAccount: (id) => ipcRenderer.invoke('remove-account', { id }),
 
     // Java
     selectJavaPath: () => ipcRenderer.invoke('select-java-path'),
@@ -29,6 +33,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // CurseForge (preparado, todavía no activo)
     setCurseForgeApiKey: (apiKey) => ipcRenderer.invoke('set-curseforge-api-key', apiKey),
 
+    // Discord Rich Presence (opcional, requiere Client ID propio del usuario)
+    setDiscordConfig: (clientId, enabled) => ipcRenderer.invoke('set-discord-config', { clientId, enabled }),
+
     // Actualizaciones
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),
     downloadUpdate: () => ipcRenderer.send('download-update'),
@@ -41,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stopGame: () => ipcRenderer.send('stop-game'),
     onGameStatus: (callback) => ipcRenderer.on('game-status', (_event, data) => callback(data)),
     onGameProgress: (callback) => ipcRenderer.on('game-progress', (_event, data) => callback(data)),
+    onGameLog: (callback) => ipcRenderer.on('game-log', (_event, line) => callback(line)),
 
     // Modpacks
     createModpack: (name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-create', { name, mcVersion, loader, loaderVersion }),
@@ -56,7 +64,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     createInvite: (id, maxUses, expiresHours) => ipcRenderer.invoke('modpacks-create-invite', { id, maxUses, expiresHours }),
     redeemInvite: (token) => ipcRenderer.invoke('modpacks-redeem-invite', { token }),
     syncModpack: (id) => ipcRenderer.invoke('modpacks-sync', { id }),
+    repairModpack: (id) => ipcRenderer.invoke('modpacks-repair', { id }),
     selectActiveModpack: (id, name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion, loader, loaderVersion }),
     onInviteReceived: (callback) => ipcRenderer.on('invite-received', (_event, data) => callback(data)),
-    onModpackSyncProgress: (callback) => ipcRenderer.on('modpack-sync-progress', (_event, data) => callback(data))
+    onModpackSyncProgress: (callback) => ipcRenderer.on('modpack-sync-progress', (_event, data) => callback(data)),
+    onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data))
 });
