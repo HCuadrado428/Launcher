@@ -13,6 +13,7 @@
                 <div class="brand-text">
                     <h1 class="title" data-i18n="app.title">EMBER LAUNCHER</h1>
                     <p class="brand-subtitle" data-i18n="app.subtitle">Modpacks, Forge, Fabric y Modrinth</p>
+                    <button id="checkUpdatesBtn" class="switch-link app-version-link"></button>
                 </div>
             </div>
             <select id="languageSelect" class="lang-select" aria-label="Language">
@@ -24,6 +25,18 @@
         <div id="updateBanner" class="update-banner">
             <span id="updateBannerText"></span>
             <button id="updateRestartBtn" class="secondary" style="display:none;" data-i18n="update.restart">Reiniciar y actualizar</button>
+        </div>
+
+        <!-- POPUP DE NUEVA ACTUALIZACIÓN DISPONIBLE -->
+        <div id="updateModal" class="modal-overlay">
+            <div class="modal-card card update-popup-card">
+                <h3 style="margin-top:0;" data-i18n="update.popup.title">🔥 Nueva actualización disponible</h3>
+                <p id="updatePopupMessage" data-i18n="update.popup.message">Hay una nueva versión del launcher. ¿Quieres descargarla ahora?</p>
+                <div class="update-popup-actions">
+                    <button id="updateLaterBtn" class="secondary" data-i18n="update.popup.later">Más tarde</button>
+                    <button id="updateYesBtn" data-i18n="update.popup.yes">Sí, descargar</button>
+                </div>
+            </div>
         </div>
 
         <!-- PANTALLA DE LOGIN -->

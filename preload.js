@@ -31,7 +31,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Actualizaciones
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),
+    downloadUpdate: () => ipcRenderer.send('download-update'),
     restartAndUpdate: () => ipcRenderer.send('restart-and-update'),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 
     // Juego
     launchGame: (data) => ipcRenderer.send('launch-game', data),

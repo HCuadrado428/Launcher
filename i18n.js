@@ -140,7 +140,14 @@ const I18N = {
         'update.downloading': 'Descargando la versión v{version}...',
         'update.downloadingPercent': 'Descargando actualización... {percent}%',
         'update.downloaded': 'Hay una versión nueva lista (v{version}).',
-        'update.restart': 'Reiniciar y actualizar'
+        'update.restart': 'Reiniciar y actualizar',
+        'update.popup.title': '🔥 Nueva actualización disponible',
+        'update.popup.message': 'Hay una nueva versión del launcher (v{version}). ¿Quieres descargarla ahora?',
+        'update.popup.yes': 'Sí, descargar',
+        'update.popup.later': 'Más tarde',
+        'update.upToDate': 'Ya tienes la última versión instalada.',
+        'update.checkError': 'No se pudo comprobar si hay actualizaciones. Revisa tu conexión e inténtalo de nuevo.',
+        'app.checkUpdates': 'v{version} · Buscar actualizaciones'
     },
     en: {
         'app.title': 'EMBER LAUNCHER',
@@ -281,7 +288,14 @@ const I18N = {
         'update.downloading': 'Downloading version v{version}...',
         'update.downloadingPercent': 'Downloading update... {percent}%',
         'update.downloaded': 'A new version is ready (v{version}).',
-        'update.restart': 'Restart and update'
+        'update.restart': 'Restart and update',
+        'update.popup.title': '🔥 New update available',
+        'update.popup.message': 'A new launcher version is available (v{version}). Do you want to download it now?',
+        'update.popup.yes': 'Yes, download',
+        'update.popup.later': 'Later',
+        'update.upToDate': 'You already have the latest version installed.',
+        'update.checkError': 'Could not check for updates. Check your connection and try again.',
+        'app.checkUpdates': 'v{version} · Check for updates'
     }
 };
 

@@ -724,14 +724,21 @@ async function syncModpack(modpackId) {
 // AUTO-ACTUALIZACIÓN (electron-updater + GitHub Releases)
 // ============================================================================
 
-// Comprueba, descarga e instala actualizaciones publicadas como GitHub
-// Release del repo configurado en package.json ("build.publish"). Solo tiene
-// sentido en la app empaquetada: en desarrollo (electron .) no hay artefacto
-// publicado que comprobar y autoUpdater lanzaría un error.
+// Comprueba actualizaciones publicadas como GitHub Release del repo
+// configurado en package.json ("build.publish"). Solo tiene sentido en la app
+// empaquetada: en desarrollo (electron .) no hay artefacto publicado que
+// comprobar y autoUpdater lanzaría un error.
+//
+// A diferencia de antes, NO se descarga automáticamente al detectar una
+// versión nueva: se avisa al renderer para que muestre un popup y el usuario
+// decida si quiere descargarla ahora o más tarde. Como la comprobación se
+// repite cada vez que se abre la app (y no se recuerda la respuesta anterior),
+// si el usuario elige "más tarde" simplemente volverá a preguntarse la
+// próxima vez que abra el launcher.
 function setupAutoUpdates() {
     if (!app.isPackaged) return;
 
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
     const send = (type, extra) => {
@@ -753,7 +760,24 @@ function setupAutoUpdates() {
     });
 }
 
+ipcMain.on('download-update', () => autoUpdater.downloadUpdate());
 ipcMain.on('restart-and-update', () => autoUpdater.quitAndInstall());
+
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+// Comprobación manual (botón "Buscar actualizaciones" en la UI). Reusa los
+// mismos eventos de arriba para avisar al renderer del resultado.
+ipcMain.handle('check-for-updates', async () => {
+    if (!app.isPackaged) {
+        return { ok: false, message: 'La comprobación de actualizaciones solo funciona en la app instalada, no en modo desarrollo.' };
+    }
+    try {
+        await autoUpdater.checkForUpdates();
+        return { ok: true };
+    } catch (err) {
+        return { ok: false, message: err && err.message ? err.message : String(err) };
+    }
+});
 
 // ============================================================================
 // VENTANA Y DEEP LINKS (milauncher://invite/TOKEN)

@@ -1,6 +1,6 @@
 {
   "name": "mi-launcher-minecraft",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Ember Launcher — launcher de Minecraft con soporte de modpacks, Forge, Fabric y Modrinth",
   "author": "HCuadrado428",
   "main": "main.js",
