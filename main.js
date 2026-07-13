@@ -1913,6 +1913,14 @@ ipcMain.handle('modpacks-restore-version', async (event, { id, versionId }) => {
     return apiRequest(`/api/modpacks/${id}/versions/${versionId}/restore`, { method: 'POST' });
 });
 
+ipcMain.handle('get-storage-usage', async () => {
+    return apiRequest('/api/modpacks/storage');
+});
+
+ipcMain.handle('modpacks-leave', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}/leave`, { method: 'POST' });
+});
+
 ipcMain.handle('modpacks-redeem-invite', async (event, { token }) => {
     return apiRequest(`/api/invites/${token}/redeem`, { method: 'POST' });
 });

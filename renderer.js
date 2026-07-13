@@ -92,6 +92,9 @@ const newModpackLoaderVersion = document.getElementById('newModpackLoaderVersion
 const createModpackBtn = document.getElementById('createModpackBtn');
 const ownedModpacksList = document.getElementById('ownedModpacksList');
 const sharedModpacksList = document.getElementById('sharedModpacksList');
+const storageUsageBar = document.getElementById('storageUsageBar');
+const storageUsageFill = document.getElementById('storageUsageFill');
+const storageUsageText = document.getElementById('storageUsageText');
 const modpackSearchInput = document.getElementById('modpackSearchInput');
 const backendStatusDot = document.getElementById('backendStatusDot');
 const backendStatusText = document.getElementById('backendStatusText');
@@ -117,12 +120,15 @@ const closeModsModalBtn = document.getElementById('closeModsModalBtn');
 const generateInviteBtn = document.getElementById('generateInviteBtn');
 const inviteResultBox = document.getElementById('inviteResultBox');
 const inviteField = document.getElementById('inviteField');
+const inviteMaxUsesInput = document.getElementById('inviteMaxUsesInput');
+const inviteExpiresHoursInput = document.getElementById('inviteExpiresHoursInput');
 const inviteNonPremiumHint = document.getElementById('inviteNonPremiumHint');
 const accessManagementSection = document.getElementById('accessManagementSection');
 const invitesList = document.getElementById('invitesList');
 const accessList = document.getElementById('accessList');
 const versionHistorySection = document.getElementById('versionHistorySection');
 const versionsList = document.getElementById('versionsList');
+const leaveModpackBtn = document.getElementById('leaveModpackBtn');
 const deleteModpackBtn = document.getElementById('deleteModpackBtn');
 const repairModpackBtn = document.getElementById('repairModpackBtn');
 const verifyModpackBtn = document.getElementById('verifyModpackBtn');
@@ -881,9 +887,28 @@ function skeletonCardsHtml(count) {
     return Array.from({ length: count }, () => '<div class="modpack-card-skeleton"></div>').join('');
 }
 
+// Best-effort: si falla (backend caído, cuenta sin sesión) simplemente no
+// se muestra la barra en vez de romper la carga de la lista de modpacks.
+async function loadStorageUsage() {
+    try {
+        const { used_bytes, limit_bytes } = await window.electronAPI.getStorageUsage();
+        const percent = limit_bytes > 0 ? Math.min(100, (used_bytes / limit_bytes) * 100) : 0;
+        storageUsageFill.style.width = `${percent}%`;
+        storageUsageFill.classList.toggle('storage-usage-warning', percent >= 90);
+        storageUsageText.textContent = t('modpacks.storage.usage', {
+            used: formatBytes(used_bytes),
+            limit: formatBytes(limit_bytes)
+        });
+        storageUsageBar.style.display = '';
+    } catch (err) {
+        storageUsageBar.style.display = 'none';
+    }
+}
+
 async function loadModpacks() {
     ownedModpacksList.innerHTML = skeletonCardsHtml(2);
     sharedModpacksList.innerHTML = skeletonCardsHtml(2);
+    loadStorageUsage();
     try {
         const data = await window.electronAPI.getMyModpacks();
         lastLoadedModpacks = data;
@@ -1085,9 +1110,15 @@ async function openModsModal(id, name, mcVersion, loader, isOwner = true) {
     versionHistorySection.style.display = isOwner ? '' : 'none';
     setCoverBtn.style.display = isOwner ? '' : 'none';
     deleteModpackBtn.style.display = isOwner ? '' : 'none';
+    leaveModpackBtn.style.display = isOwner ? 'none' : '';
 
     if (isOwner) {
-        const isPremium = !currentAccount || currentAccount.premium !== false;
+        // toPublicAccount() en main.js siempre calcula "premium" como un
+        // booleano real ahora, así que si por lo que sea no hay cuenta
+        // cargada, lo más seguro es no mostrar el botón en vez de asumir
+        // que sí puede compartir (el backend lo bloquearía igualmente, pero
+        // mejor que el hint sea el que se vea, no un 403 confuso).
+        const isPremium = Boolean(currentAccount && currentAccount.premium);
         generateInviteBtn.style.display = isPremium ? '' : 'none';
         inviteNonPremiumHint.style.display = isPremium ? 'none' : '';
         await loadInvitesAndAccess();
@@ -1110,10 +1141,20 @@ async function loadInvitesAndAccess() {
             ? invites.map(inv => `
                 <div class="mod-item" data-token="${inv.token}">
                     <span>${inv.uses}${inv.max_uses ? '/' + inv.max_uses : ''} ${t('modal.access.uses')}${inv.expires_at ? ' · ' + new Date(inv.expires_at).toLocaleDateString() : ''}</span>
+                    <button class="mod-item-update" data-token="${inv.token}" title="${t('modal.access.copyLink')}">📋</button>
                     <button class="mod-item-remove" data-token="${inv.token}" title="${t('modal.access.revoke')}">&times;</button>
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.access.noInvites')}</div>`;
+        invitesList.querySelectorAll('.mod-item-update').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const url = `milauncher://invite/${btn.dataset.token}`;
+                if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(url);
+                    showToast(t('toast.inviteCopied'), 'info');
+                }
+            });
+        });
         invitesList.querySelectorAll('.mod-item-remove').forEach(btn => {
             btn.addEventListener('click', async () => {
                 try {
@@ -1166,8 +1207,11 @@ async function loadVersionHistory() {
                 const confirmed = confirm(t('modal.versions.restoreConfirm'));
                 if (!confirmed) return;
                 try {
-                    await window.electronAPI.restoreModpackVersion(currentModsModalId, btn.dataset.versionId);
+                    const result = await window.electronAPI.restoreModpackVersion(currentModsModalId, btn.dataset.versionId);
                     showToast(t('modal.versions.restored'), 'info');
+                    if (result && result.skipped_files && result.skipped_files.length) {
+                        showToast(t('modal.versions.skippedFiles', { names: result.skipped_files.join(', ') }), 'warning');
+                    }
                     await reloadModsList();
                     await loadVersionHistory();
                 } catch (err) {
@@ -1400,14 +1444,20 @@ closeModsModalBtn.addEventListener('click', () => {
 
 generateInviteBtn.addEventListener('click', async () => {
     if (!currentModsModalId) return;
+    const maxUsesRaw = inviteMaxUsesInput.value.trim();
+    const expiresHoursRaw = inviteExpiresHoursInput.value.trim();
+    const maxUses = maxUsesRaw ? parseInt(maxUsesRaw, 10) : null;
+    const expiresHours = expiresHoursRaw ? parseFloat(expiresHoursRaw) : null;
     try {
-        const result = await window.electronAPI.createInvite(currentModsModalId);
+        const result = await window.electronAPI.createInvite(currentModsModalId, maxUses, expiresHours);
         inviteResultBox.innerText = result.url;
         inviteResultBox.classList.add('active');
         if (navigator.clipboard) {
             await navigator.clipboard.writeText(result.url);
             showToast(t('toast.inviteCopied'), 'info');
         }
+        inviteMaxUsesInput.value = '';
+        inviteExpiresHoursInput.value = '';
         await loadInvitesAndAccess();
     } catch (err) {
         showToast(err.message || t('toast.inviteCreateFailed'), 'error');
@@ -1516,6 +1566,26 @@ deleteModpackBtn.addEventListener('click', async () => {
     } finally {
         deleteModpackBtn.disabled = false;
         deleteModpackBtn.innerText = t('modal.deleteModpack');
+    }
+});
+
+leaveModpackBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+    const confirmed = confirm(t('modal.leaveConfirm', { name: currentModsModalName || '' }));
+    if (!confirmed) return;
+
+    leaveModpackBtn.disabled = true;
+    try {
+        await window.electronAPI.leaveModpack(currentModsModalId);
+        showToast(t('toast.modpackLeft'), 'info');
+        modsModal.classList.remove('active');
+        currentModsModalId = null;
+        currentModsModalName = null;
+        loadModpacks();
+    } catch (err) {
+        showToast(err.message || t('toast.modpackLeaveFailed'), 'error');
+    } finally {
+        leaveModpackBtn.disabled = false;
     }
 });
 

@@ -193,6 +193,10 @@
 
             <div class="field">
                 <label data-i18n="modpacks.owned.label">Mis modpacks (creados por mí)</label>
+                <div id="storageUsageBar" class="storage-usage" style="display:none;">
+                    <div class="storage-usage-track"><div class="storage-usage-fill" id="storageUsageFill"></div></div>
+                    <span id="storageUsageText"></span>
+                </div>
                 <div id="ownedModpacksList" class="modpack-grid"></div>
             </div>
 
@@ -237,6 +241,10 @@
                 <hr class="modal-divider">
                 <div class="field" id="inviteField">
                     <label data-i18n="modal.invite.label">Invitar a otros jugadores</label>
+                    <div class="invite-options-row">
+                        <input type="number" id="inviteMaxUsesInput" min="1" step="1" data-i18n-placeholder="modal.invite.maxUsesPlaceholder" placeholder="Usos máx. (opcional)">
+                        <input type="number" id="inviteExpiresHoursInput" min="1" step="1" data-i18n-placeholder="modal.invite.expiresPlaceholder" placeholder="Caduca en horas (opcional)">
+                    </div>
                     <button class="secondary" id="generateInviteBtn" data-i18n="modal.invite.generate">Generar link de invitación</button>
                     <div id="inviteResultBox" class="invite-result"></div>
                     <div id="inviteNonPremiumHint" class="empty-hint" style="display:none;" data-i18n="modal.invite.premiumRequired">Compartir modpacks requiere una cuenta de Minecraft premium (Microsoft).</div>
@@ -265,6 +273,7 @@
                     <button id="verifyModpackBtn" class="secondary" style="display:none;" data-i18n="modal.verify">Verificar archivos</button>
                     <button id="repairModpackBtn" class="secondary" style="display:none;" data-i18n="modal.repair">Reparar instalación</button>
                     <button id="exportModpackBtn" class="secondary" style="display:none;" data-i18n="modal.export">Exportar a .zip</button>
+                    <button id="leaveModpackBtn" class="danger" style="display:none;" data-i18n="modal.leave">Abandonar modpack</button>
                     <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
                 </div>
             </div>

@@ -514,6 +514,15 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 }
 #progressLabel { margin-top: 8px; font-size: 12px; color: var(--text-dim); text-align: center; }
 
+.storage-usage { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.storage-usage-track { flex: 1; height: 8px; border-radius: 6px; background: #0f151c; overflow: hidden; }
+.storage-usage-fill { height: 100%; border-radius: 6px; background: var(--accent); transition: width .35s ease-out; }
+.storage-usage-fill.storage-usage-warning { background: var(--danger); }
+#storageUsageText { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+
+.invite-options-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.invite-options-row input { font-size: 12px; margin-bottom: 0; }
+
 /* --- Toasts --- */
 #toastWrap {
     position: fixed;

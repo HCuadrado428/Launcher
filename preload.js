@@ -106,6 +106,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getOptionalModChoices: (id) => ipcRenderer.invoke('get-optional-mod-choices', { id }),
     setOptionalModChoice: (id, modId, included) => ipcRenderer.invoke('set-optional-mod-choice', { id, modId, included }),
 
+    // Uso de almacenamiento y abandonar un modpack compartido
+    getStorageUsage: () => ipcRenderer.invoke('get-storage-usage'),
+    leaveModpack: (id) => ipcRenderer.invoke('modpacks-leave', { id }),
+
     // Se dispara cuando el backend responde 401 (JWT de 30 días caducado o
     // inválido) a cualquier petición autenticada. onGameStatus etc. se
     // suscriben una sola vez al arrancar, así que basta con un listener fijo
