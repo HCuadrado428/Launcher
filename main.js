@@ -1468,9 +1468,13 @@ ipcMain.handle('get-config', () => {
     if (!cfg.language) {
         const systemLang = (app.getLocale() || 'es').slice(0, 2).toLowerCase();
         const chosen = SUPPORTED_LANGUAGES.includes(systemLang) ? systemLang : 'es';
-        return saveConfig({ language: chosen });
+        return { ...saveConfig({ language: chosen }), account: cfg.account ? toPublicAccount(cfg.account) : cfg.account };
     }
-    return cfg;
+    // cfg.account trae el token/auth interno (necesario para las llamadas
+    // del propio main.js); el renderer solo necesita la versión pública, la
+    // misma que devuelven login/switch-account, para que "premium" salga
+    // siempre calculado igual sin importar por qué camino se cargó la cuenta.
+    return { ...cfg, account: cfg.account ? toPublicAccount(cfg.account) : cfg.account };
 });
 
 // RAM y ruta de Java guardadas por modpack (o "vanilla" si no hay ninguno
@@ -1504,12 +1508,22 @@ function upsertAccount(accounts, account) {
 // "premium" viene de la sesión con el backend (true para Microsoft, false
 // para offline) y decide si la UI deja compartir/generar invitaciones.
 function toPublicAccount(account) {
+    // Las sesiones guardadas antes de que existiera "premium" (cualquier
+    // cuenta Microsoft verificada antes de este cambio) no tienen ese campo.
+    // Si lo tratáramos como "falta = no premium" se ocultaría el botón de
+    // invitar a cuentas Microsoft legítimas hasta que volvieran a loguearse.
+    // Solo una cuenta offline puede tener premium explícitamente en false
+    // (así lo devuelve /auth/verify-offline); si no está presente, se asume
+    // premium salvo que la sesión diga expresamente lo contrario.
+    const premium = account.session
+        ? account.session.premium !== false
+        : account.type === 'microsoft';
     return {
         id: account.id,
         type: account.type,
         username: account.username,
         uuid: account.uuid || null,
-        premium: !!(account.session && account.session.premium)
+        premium
     };
 }
 
