@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteModpack: (id) => ipcRenderer.invoke('modpacks-delete', { id }),
     getMyModpacks: () => ipcRenderer.invoke('modpacks-mine'),
     getModpackManifest: (id) => ipcRenderer.invoke('modpacks-manifest', { id }),
+    checkModpackHealth: (id) => ipcRenderer.invoke('modpacks-check-health', { id }),
     addModToModpack: (id, type) => ipcRenderer.invoke('modpacks-add-mod', { id, type }),
     removeModFromModpack: (id, modId) => ipcRenderer.invoke('modpacks-remove-mod', { id, modId }),
     searchModrinth: (query, mcVersion, loader, projectType) => ipcRenderer.invoke('search-modrinth', { query, mcVersion, loader, projectType }),
@@ -76,6 +77,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setModpackCover: (id) => ipcRenderer.invoke('modpacks-set-cover', { id }),
     selectActiveModpack: (id, name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion, loader, loaderVersion }),
     onInviteReceived: (callback) => ipcRenderer.on('invite-received', (_event, data) => callback(data)),
-    onModpackSyncProgress: (callback) => ipcRenderer.on('modpack-sync-progress', (_event, data) => callback(data)),
+    // Se registra un listener nuevo cada vez que se llama, así que a
+    // diferencia de los demás "on..." (que se suscriben una sola vez al
+    // arrancar) este SÍ hay que poder des-suscribirlo: se llama en cada
+    // sincronización/reparación/verificación, y sin forma de quitarlo se
+    // iban acumulando listeners duplicados en cada uso durante la sesión.
+    onModpackSyncProgress: (callback) => {
+        const listener = (_event, data) => callback(data);
+        ipcRenderer.on('modpack-sync-progress', listener);
+        return () => ipcRenderer.removeListener('modpack-sync-progress', listener);
+    },
     onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data))
 });

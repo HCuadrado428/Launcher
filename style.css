@@ -716,6 +716,19 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 .modal-card { width: 480px; max-width: 92vw; max-height: 80vh; overflow-y: auto; }
 .modal-divider { border: none; border-top: 1px solid #33404d; margin: 20px 0; }
 
+.health-status {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+}
+.health-status.active { display: flex; }
+.health-status.broken { background: color-mix(in srgb, var(--danger) 16%, transparent); color: #ff9b9b; border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
+.health-status.ok { background: #ffffff08; color: var(--text-dim); border: 1px solid #33404d; }
+
 .type-tabs {
     display: flex;
     gap: 6px;

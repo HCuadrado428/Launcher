@@ -214,6 +214,8 @@
                     <h3 id="modsModalTitle" style="margin: 0;" data-i18n="modal.title">Gestionar mods</h3>
                     <button class="switch-link" id="closeModsModalBtn" data-i18n="modal.close">Cerrar</button>
                 </div>
+                <div id="modpackHealthStatus" class="health-status"></div>
+
                 <div class="type-tabs">
                     <button class="type-tab active" id="modsTypeTab" data-type="mod" data-i18n="modal.tab.mods">Mods</button>
                     <button class="type-tab" id="resourcepacksTypeTab" data-type="resourcepack" data-i18n="modal.tab.resourcepacks">Resource packs</button>
@@ -241,9 +243,9 @@
                 <hr class="modal-divider">
                 <div class="button-stack">
                     <button id="setCoverBtn" class="secondary" data-i18n="modal.setCover">Cambiar portada</button>
-                    <button id="verifyModpackBtn" class="secondary" data-i18n="modal.verify">Verificar archivos</button>
-                    <button id="repairModpackBtn" class="secondary" data-i18n="modal.repair">Reparar instalación</button>
-                    <button id="exportModpackBtn" class="secondary" data-i18n="modal.export">Exportar a .zip</button>
+                    <button id="verifyModpackBtn" class="secondary" style="display:none;" data-i18n="modal.verify">Verificar archivos</button>
+                    <button id="repairModpackBtn" class="secondary" style="display:none;" data-i18n="modal.repair">Reparar instalación</button>
+                    <button id="exportModpackBtn" class="secondary" style="display:none;" data-i18n="modal.export">Exportar a .zip</button>
                     <button id="deleteModpackBtn" class="danger" data-i18n="modal.deleteModpack">Eliminar modpack</button>
                 </div>
             </div>

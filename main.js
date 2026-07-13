@@ -1545,6 +1545,34 @@ ipcMain.handle('modpacks-manifest', async (event, { id }) => {
     return apiRequest(`/api/modpacks/${id}/manifest`);
 });
 
+// Comprobación rápida y solo local (sin tocar el servidor) de si la
+// instalación de un modpack parece rota: ¿existen de verdad en disco los
+// archivos que nuestra propia meta dice que deberían estar? No comprueba el
+// contenido (para eso está "Verificar archivos", más lento a propósito):
+// es solo la señal barata que decide si tiene sentido ofrecer "Reparar
+// instalación" o mejor no molestar con ese botón si no hace falta.
+function checkLocalInstanceHealth(modpackId) {
+    const dir = instanceDir(modpackId);
+    if (!fs.existsSync(dir)) return { synced: false, healthy: true };
+
+    const meta = loadInstanceMeta(modpackId);
+
+    if (meta.loader && meta.loader !== 'vanilla') {
+        if (!meta.loader_version_id) return { synced: true, healthy: false };
+        const versionJsonPath = path.join(dir, 'versions', meta.loader_version_id, `${meta.loader_version_id}.json`);
+        if (!fs.existsSync(versionJsonPath)) return { synced: true, healthy: false };
+    }
+
+    for (const mod of meta.mods || []) {
+        const filePath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
+        if (!fs.existsSync(filePath)) return { synced: true, healthy: false };
+    }
+
+    return { synced: true, healthy: true };
+}
+
+ipcMain.handle('modpacks-check-health', (event, { id }) => checkLocalInstanceHealth(id));
+
 ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
     const modType = type === 'resourcepack' ? 'resourcepack' : 'mod';
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -1678,20 +1706,24 @@ ipcMain.handle('modpacks-verify-files', async (event, { id }) => {
     let checked = 0;
     let fixed = 0;
 
-    for (const mod of mods) {
-        checked++;
+    // El hash de cada archivo es lectura local (barata de paralelizar de
+    // verdad); antes se comprobaba uno a uno, lo que en un modpack con
+    // muchos mods hacía que "Verificar archivos" tardase mucho más de lo
+    // necesario para lo poco que cuesta cada comprobación individual.
+    await runWithConcurrencyLimit(mods, 6, async (mod) => {
         const filePath = path.join(instanceDirForModType(id, mod), mod.filename);
         let actualSha1 = null;
         if (fs.existsSync(filePath)) {
             try { actualSha1 = await sha1File(filePath); } catch (err) { actualSha1 = null; }
         }
 
+        checked++;
         const percent = total > 0 ? Math.round((checked / total) * 100) : 100;
         if (actualSha1 === mod.sha1) {
             if (mainWindow) {
                 mainWindow.webContents.send('modpack-sync-progress', { label: `Comprobando ${mod.filename}...`, percent, modpackId: id });
             }
-            continue;
+            return;
         }
 
         if (mainWindow) {
@@ -1703,7 +1735,7 @@ ipcMain.handle('modpacks-verify-files', async (event, { id }) => {
             throw new Error(`El archivo ${mod.filename} se volvió a descargar pero sigue sin coincidir con el original. Vuelve a intentarlo.`);
         }
         fixed++;
-    }
+    });
 
     return { checked, fixed };
 });

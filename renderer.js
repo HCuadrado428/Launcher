@@ -120,6 +120,7 @@ const repairModpackBtn = document.getElementById('repairModpackBtn');
 const verifyModpackBtn = document.getElementById('verifyModpackBtn');
 const exportModpackBtn = document.getElementById('exportModpackBtn');
 const setCoverBtn = document.getElementById('setCoverBtn');
+const modpackHealthStatus = document.getElementById('modpackHealthStatus');
 
 let currentAccount = null;
 let currentModsModalId = null;
@@ -956,6 +957,7 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, 
     } catch (err) {
         showToast(err.message || t('toast.modpackSyncFailed'), 'error');
     } finally {
+        removeProgressListener();
         buttonEl.disabled = false;
         buttonEl.innerText = originalText;
     }
@@ -982,6 +984,34 @@ async function openModsModal(id, name, mcVersion, loader) {
     modrinthResults.innerHTML = '';
     modsModal.classList.add('active');
     await reloadModsList();
+    await refreshModpackHealth(id);
+}
+
+// El botón "Reparar instalación" borra y vuelve a descargar todo, así que
+// no tiene sentido tenerlo siempre a la vista: solo aparece cuando la
+// comprobación local (rápida, sin tocar el servidor) detecta que falta algo
+// de lo que la propia instalación dice que debería tener.
+async function refreshModpackHealth(id) {
+    modpackHealthStatus.classList.remove('active', 'ok', 'broken');
+    repairModpackBtn.style.display = 'none';
+
+    const result = await window.electronAPI.checkModpackHealth(id);
+    const synced = Boolean(result && result.synced);
+    // Verificar/exportar tampoco tienen sentido si el modpack nunca se ha
+    // sincronizado en este ordenador: no hay nada local que comprobar ni
+    // que empaquetar todavía.
+    verifyModpackBtn.style.display = synced ? '' : 'none';
+    exportModpackBtn.style.display = synced ? '' : 'none';
+    if (!synced) return;
+
+    if (result.healthy) {
+        modpackHealthStatus.textContent = t('health.ok');
+        modpackHealthStatus.classList.add('active', 'ok');
+    } else {
+        modpackHealthStatus.textContent = t('health.broken');
+        modpackHealthStatus.classList.add('active', 'broken');
+        repairModpackBtn.style.display = '';
+    }
 }
 
 function renderModsList() {
@@ -1152,7 +1182,7 @@ repairModpackBtn.addEventListener('click', async () => {
     repairModpackBtn.disabled = true;
     const originalText = repairModpackBtn.innerText;
 
-    window.electronAPI.onModpackSyncProgress((data) => {
+    const removeProgressListener = window.electronAPI.onModpackSyncProgress((data) => {
         if (data.modpackId === currentModsModalId) {
             repairModpackBtn.innerText = `${data.label || ''} ${data.percent}%`;
         }
@@ -1161,9 +1191,11 @@ repairModpackBtn.addEventListener('click', async () => {
     try {
         await window.electronAPI.repairModpack(currentModsModalId);
         showToast(t('toast.modpackRepaired'), 'info');
+        await refreshModpackHealth(currentModsModalId);
     } catch (err) {
         showToast(err.message || t('toast.modpackRepairFailed'), 'error');
     } finally {
+        removeProgressListener();
         repairModpackBtn.disabled = false;
         repairModpackBtn.innerText = originalText;
     }
@@ -1190,7 +1222,7 @@ verifyModpackBtn.addEventListener('click', async () => {
     verifyModpackBtn.disabled = true;
     const originalText = verifyModpackBtn.innerText;
 
-    window.electronAPI.onModpackSyncProgress((data) => {
+    const removeProgressListener = window.electronAPI.onModpackSyncProgress((data) => {
         if (data.modpackId === currentModsModalId) {
             verifyModpackBtn.innerText = `${data.label || ''} ${data.percent}%`;
         }
@@ -1199,9 +1231,11 @@ verifyModpackBtn.addEventListener('click', async () => {
     try {
         const result = await window.electronAPI.verifyModpackFiles(currentModsModalId);
         showToast(t('toast.modpackVerified', { checked: result.checked, fixed: result.fixed }), 'info');
+        await refreshModpackHealth(currentModsModalId);
     } catch (err) {
         showToast(err.message || t('toast.modpackVerifyFailed'), 'error');
     } finally {
+        removeProgressListener();
         verifyModpackBtn.disabled = false;
         verifyModpackBtn.innerText = originalText;
     }
@@ -1335,6 +1369,8 @@ async function importLocalModpack(instancePath, buttonEl) {
         showToast(err.message || t('import.failed'), 'error');
         buttonEl.disabled = false;
         buttonEl.innerText = originalText;
+    } finally {
+        removeProgressListener();
     }
 }
 
