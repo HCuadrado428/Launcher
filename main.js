@@ -51,23 +51,38 @@ const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const INSTANCES_DIR = path.join(app.getPath('appData'), '.milauncher', 'instances');
 const VANILLA_ROOT = path.join(app.getPath('appData'), '.milauncher');
 
+// loadConfig()/saveConfig() se llaman muchísimas veces por sesión (cada
+// petición al backend comprueba la sesión, cada paso de progreso puede
+// tocar la config...). Releer y parsear el archivo entero del disco cada
+// vez es trabajo de sobra para un archivo que solo cambia cuando nosotros
+// lo cambiamos, así que se mantiene en memoria y solo se toca el disco de
+// verdad al guardar. Cada llamada a loadConfig() devuelve una copia
+// superficial para que quien la reciba pueda mutarla libremente (hay sitios
+// que hacen eso) sin corromper la caché por accidente.
+let configCache = null;
+
 function loadConfig() {
-    try {
-        const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
-        return JSON.parse(raw);
-    } catch (err) {
-        return {};
+    if (configCache === null) {
+        try {
+            const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
+            configCache = JSON.parse(raw);
+        } catch (err) {
+            configCache = {};
+        }
     }
+    return { ...configCache };
 }
 
 function saveConfig(partial) {
     try {
-        const current = loadConfig();
+        const current = configCache || loadConfig();
         const merged = { ...current, ...partial };
         fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2));
-        return merged;
+        configCache = merged;
+        return { ...merged };
     } catch (err) {
         console.error('[ERROR] No se pudo guardar la config:', err);
+        configCache = null;
         return loadConfig();
     }
 }
@@ -200,15 +215,25 @@ function requiredJavaMajorFor(mcVersion) {
 // null si no se pudo determinar (ruta inválida, binario que no responde,
 // formato de salida inesperado...). Nunca rechaza la promesa: esto es solo
 // un aviso informativo, no debe poder bloquear el lanzamiento del juego.
+// El Java instalado en una ruta dada no cambia de versión solo (haría falta
+// reinstalarlo), así que no tiene sentido volver a lanzar el proceso
+// "java -version" (con el arranque de la JVM que eso conlleva) en cada
+// partida si ya lo comprobamos antes en esta misma sesión del launcher.
+const javaMajorCache = new Map();
+
 function getInstalledJavaMajor(javaPath) {
+    if (javaMajorCache.has(javaPath)) {
+        return Promise.resolve(javaMajorCache.get(javaPath));
+    }
     return new Promise((resolve) => {
         execFile(javaPath, ['-version'], (err, stdout, stderr) => {
             const output = `${stdout || ''}${stderr || ''}`;
             const match = output.match(/version "(\d+)(?:\.(\d+))?/);
-            if (!match) return resolve(null);
-            // Formato antiguo "1.8.0_xxx" -> Java 8; formato moderno "17.0.1" -> Java 17.
-            let major = parseInt(match[1], 10);
-            if (major === 1 && match[2]) major = parseInt(match[2], 10);
+            const major = match
+                // Formato antiguo "1.8.0_xxx" -> Java 8; formato moderno "17.0.1" -> Java 17.
+                ? (parseInt(match[1], 10) === 1 && match[2] ? parseInt(match[2], 10) : parseInt(match[1], 10))
+                : null;
+            javaMajorCache.set(javaPath, major);
             resolve(major);
         });
     });
@@ -218,53 +243,62 @@ function getInstalledJavaMajor(javaPath) {
 // ÚLTIMA VERSIÓN DE MINECRAFT (igual que antes, para el modo "sin modpack")
 // ============================================================================
 
-let cachedLatestVersion = null;
+// El manifiesto de versiones de Mojang pesa varios MB y se usaba para dos
+// cosas que se piden por separado (última versión al lanzar, lista de
+// releases al crear un modpack), cada una descargando y parseando su propia
+// copia. La "última versión" casi nunca cambia de un lanzamiento a otro, así
+// que ahora se comparte una sola copia en memoria con un tiempo de validez:
+// dentro de esa ventana no se vuelve a pedir ni a parsear nada.
+const MOJANG_MANIFEST_URL = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
+const MOJANG_MANIFEST_TTL_MS = 30 * 60 * 1000;
 
-async function fetchLatestMinecraftVersion() {
-    const response = await fetch('https://launchermeta.mojang.com/mc/game/version_manifest_v2.json');
-    if (!response.ok) {
-        throw new Error(`Mojang respondió con estado ${response.status}`);
+let mojangManifestCache = null;
+let mojangManifestFetchedAt = 0;
+
+async function getMojangManifest() {
+    const isFresh = mojangManifestCache && (Date.now() - mojangManifestFetchedAt) < MOJANG_MANIFEST_TTL_MS;
+    if (isFresh) return mojangManifestCache;
+
+    try {
+        const response = await fetchWithTimeout(MOJANG_MANIFEST_URL, {}, 15000);
+        if (!response.ok) throw new Error(`Mojang respondió con estado ${response.status}`);
+        const data = await response.json();
+        mojangManifestCache = data;
+        mojangManifestFetchedAt = Date.now();
+        return data;
+    } catch (err) {
+        // Mejor una copia caducada que nada: seguimos pudiendo jugar aunque
+        // Mojang esté caído o no haya conexión en este momento.
+        if (mojangManifestCache) return mojangManifestCache;
+        throw err;
     }
-    const data = await response.json();
-    if (!data || !data.latest || !data.latest.release) {
-        throw new Error('La respuesta de Mojang no tiene el formato esperado.');
-    }
-    cachedLatestVersion = data.latest.release;
-    return cachedLatestVersion;
 }
 
 async function getMinecraftVersionToLaunch() {
     try {
-        return await fetchLatestMinecraftVersion();
+        const data = await getMojangManifest();
+        if (!data || !data.latest || !data.latest.release) {
+            throw new Error('La respuesta de Mojang no tiene el formato esperado.');
+        }
+        return data.latest.release;
     } catch (err) {
         console.warn('[WARN] No se pudo consultar la última versión de Minecraft:', err.message);
-        return cachedLatestVersion || '1.20.1';
+        return '1.20.1';
     }
 }
-
-let cachedReleaseVersions = null;
 
 // Todas las versiones "release" de Minecraft, de más reciente a más antigua,
 // sin snapshots ni versiones beta/alpha. Se usa para poblar el <select> de
 // versión al crear un modpack.
-async function fetchReleaseVersions() {
-    const response = await fetch('https://launchermeta.mojang.com/mc/game/version_manifest_v2.json');
-    if (!response.ok) {
-        throw new Error(`Mojang respondió con estado ${response.status}`);
-    }
-    const data = await response.json();
-    cachedReleaseVersions = (data.versions || [])
-        .filter((v) => v.type === 'release')
-        .map((v) => v.id);
-    return cachedReleaseVersions;
-}
-
 async function getReleaseVersionsToShow() {
     try {
-        return await fetchReleaseVersions();
+        const data = await getMojangManifest();
+        return (data.versions || [])
+            .filter((v) => v.type === 'release')
+            .map((v) => v.id);
     } catch (err) {
         console.warn('[WARN] No se pudo consultar la lista de versiones de Minecraft:', err.message);
-        return cachedReleaseVersions || [];
+        return [];
     }
 }
 
@@ -543,11 +577,11 @@ async function findModrinthInstances() {
         if (jarFiles.length === 0) continue;
 
         const hashes = [];
-        for (const file of jarFiles) {
+        await runWithConcurrencyLimit(jarFiles, 8, async (file) => {
             try {
                 hashes.push(await sha1File(path.join(modsDir, file)));
             } catch (err) { /* archivo ilegible, se ignora */ }
-        }
+        });
 
         let resolvedMods = [];
         if (hashes.length > 0) {
@@ -750,6 +784,23 @@ async function downloadModFile(modpackId, mod, destPath) {
     fs.writeFileSync(destPath, buffer);
 }
 
+// Ejecuta "worker" sobre cada elemento de "items" con como mucho "limit" en
+// vuelo a la vez, en vez de todos de golpe (Promise.all sin límite) o de uno
+// en uno (un simple for/await). Si algún worker lanza, el error se propaga
+// tal cual (los demás que ya estaban en marcha terminan, pero no se lanzan
+// nuevos).
+async function runWithConcurrencyLimit(items, limit, worker) {
+    const queue = [...items];
+    const runnerCount = Math.min(limit, queue.length);
+    const runners = new Array(runnerCount).fill(null).map(async () => {
+        while (queue.length > 0) {
+            const item = queue.shift();
+            await worker(item);
+        }
+    });
+    await Promise.all(runners);
+}
+
 function formatBytesMain(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     const units = ['KB', 'MB', 'GB'];
@@ -873,7 +924,10 @@ async function syncModpackImpl(modpackId) {
         sendProgress(`Quitando ${mod.filename}...`);
     }
 
-    for (const mod of toDownload) {
+    // Antes se bajaban de uno en uno; con varios a la vez (límite moderado,
+    // no sin límite como las librerías de Minecraft) se aprovecha mejor la
+    // conexión sin volver a saturar el sistema de golpe.
+    await runWithConcurrencyLimit(toDownload, 4, async (mod) => {
         const destPath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
         await downloadModFile(modpackId, mod, destPath);
         const actualSha1 = await sha1File(destPath);
@@ -881,7 +935,7 @@ async function syncModpackImpl(modpackId) {
             throw new Error(`El archivo ${mod.filename} se descargó pero no coincide con el original (posible corrupción). Vuelve a intentarlo.`);
         }
         sendProgress(`Descargando ${mod.filename}...`);
-    }
+    });
 
     // Instalamos Forge/Fabric si hace falta (needsLoaderInstall se calculó
     // arriba). Se cachea vía .launcher-meta.json para no reinstalar el

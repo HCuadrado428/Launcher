@@ -674,7 +674,11 @@ window.electronAPI.onGameLog((line) => {
         gameLogLines.splice(0, gameLogLines.length - GAME_LOG_MAX_LINES);
     }
     if (consoleModal.classList.contains('active')) {
-        consoleLogBox.innerText = gameLogLines.join('');
+        // Solo se añade la línea nueva (barato) en vez de reconstruir y
+        // volver a pintar el bloque entero de texto en cada línea, que con
+        // un juego que suelta muchas líneas por segundo (típico al cargar
+        // mods) se notaba como lag mientras la consola estaba abierta.
+        consoleLogBox.appendChild(document.createTextNode(line));
         consoleLogBox.scrollTop = consoleLogBox.scrollHeight;
     }
 });
@@ -797,10 +801,16 @@ function modpackItemHtml(pack, isOwner) {
     `;
 }
 
+const HTML_ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const HTML_ESCAPE_RE = /[&<>"']/g;
+
+// Antes creaba un <div> y hacía un viaje de ida y vuelta por innerText/
+// innerHTML por cada valor a escapar; con listas que se repintan enteras
+// (p.ej. al buscar) eso es mucho tocar el DOM solo para escapar texto. Un
+// reemplazo por tabla es igual de correcto y no toca el DOM para nada.
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.innerText = str == null ? '' : String(str);
-    return div.innerHTML;
+    if (str == null) return '';
+    return String(str).replace(HTML_ESCAPE_RE, (ch) => HTML_ESCAPE_MAP[ch]);
 }
 
 let lastLoadedModpacks = { owned: [], shared: [] };
@@ -832,7 +842,18 @@ function renderModpackLists() {
     });
 }
 
-modpackSearchInput.addEventListener('input', renderModpackLists);
+function debounce(fn, delayMs) {
+    let timeoutId = null;
+    return (...args) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => fn(...args), delayMs);
+    };
+}
+
+// Repintar toda la lista de tarjetas en cada pulsación no hace falta:
+// esperar un poco a que el usuario pare de teclear evita reconstruir el HTML
+// entero varias veces por segundo mientras escribe.
+modpackSearchInput.addEventListener('input', debounce(renderModpackLists, 150));
 
 function skeletonCardsHtml(count) {
     return Array.from({ length: count }, () => '<div class="modpack-card-skeleton"></div>').join('');
