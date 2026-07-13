@@ -333,16 +333,38 @@ async function getMojangManifest() {
     }
 }
 
+// Versiones vanilla que ya están instaladas localmente (carpetas dentro de
+// VANILLA_ROOT/versions). Se usa como mejor alternativa a un número de
+// versión fijo cuando no hay forma de preguntarle a Mojang cuál es la
+// última.
+function getInstalledVanillaVersions() {
+    try {
+        return fs.readdirSync(path.join(VANILLA_ROOT, 'versions'), { withFileTypes: true })
+            .filter((e) => e.isDirectory())
+            .map((e) => e.name);
+    } catch (err) {
+        return [];
+    }
+}
+
+// Devuelve { version, fallback }: fallback=true significa que no se pudo
+// consultar a Mojang (sin red, o el propio Mojang caído) y no había ninguna
+// copia en caché en memoria de esta sesión. Antes en ese caso se devolvía
+// silenciosamente "1.20.1" a ciegas, sin avisar a nadie ni comprobar si ya
+// había una versión vanilla instalada localmente que tuviera más sentido
+// reutilizar (evita, p.ej., que el launcher intente lanzar 1.20.1 cuando en
+// realidad el jugador ya tiene la 1.21.1 descargada de la sesión anterior).
 async function getMinecraftVersionToLaunch() {
     try {
         const data = await getMojangManifest();
         if (!data || !data.latest || !data.latest.release) {
             throw new Error('La respuesta de Mojang no tiene el formato esperado.');
         }
-        return data.latest.release;
+        return { version: data.latest.release, fallback: false };
     } catch (err) {
         console.warn('[WARN] No se pudo consultar la última versión de Minecraft:', err.message);
-        return '1.20.1';
+        const installed = getInstalledVanillaVersions();
+        return { version: installed[0] || '1.20.1', fallback: true };
     }
 }
 
@@ -775,6 +797,35 @@ async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {
     }
 }
 
+// Mismo algoritmo que usan los servidores de Minecraft en modo offline
+// (UUID v3/MD5 de "OfflinePlayer:<username>"). El backend recalcula este
+// mismo uuid por su cuenta a partir del username que le mandamos (nunca
+// confía en uno que le enviemos), así que esto es solo para tener el mismo
+// valor disponible localmente sin depender de la respuesta del servidor.
+function offlineUuidFromUsername(username) {
+    const hash = crypto.createHash('md5').update(`OfflinePlayer:${username}`, 'utf8').digest();
+    hash[6] = (hash[6] & 0x0f) | 0x30;
+    hash[8] = (hash[8] & 0x3f) | 0x80;
+    const hex = hash.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// Registra/verifica una cuenta offline contra el backend: no hay ninguna
+// identidad real que comprobar, así que solo hace falta el username. El
+// backend la marca como premium=0 (ver requirePremium): puede crear y
+// unirse a modpacks igual que una cuenta Microsoft, pero no compartir los
+// suyos.
+async function verifyOfflineSessionWithBackend(username) {
+    const res = await fetchWithTimeout(`${getBackendUrl()}/api/auth/verify-offline`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo registrar la cuenta offline con el servidor de modpacks.');
+    return data;
+}
+
 // Verifica el access_token de Microsoft contra nuestro backend y guarda la
 // sesión (JWT) resultante en la config local.
 async function verifySessionWithBackend(accessToken) {
@@ -785,7 +836,7 @@ async function verifySessionWithBackend(accessToken) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'No se pudo verificar la sesión con el servidor de modpacks.');
-    saveConfig({ session: { token: data.token, uuid: data.uuid, username: data.username } });
+    saveConfig({ session: { token: data.token, uuid: data.uuid, username: data.username, premium: !!data.premium } });
     return data;
 }
 
@@ -931,7 +982,15 @@ async function syncModpackImpl(modpackId) {
 
     // Los mods antiguos sincronizados antes de que existiera "type" no lo
     // tienen guardado en el meta local; se asumen mods normales.
-    const remoteMods = manifest.mods.map(m => ({ type: 'mod', ...m })); // [{id, filename, filesize, sha1, type}]
+    // Los mods marcados "optional" en el manifiesto se incluyen salvo que el
+    // jugador los haya desmarcado explícitamente (elección local, por
+    // modpack+mod; ausencia = incluido, igual que el comportamiento de
+    // siempre, así que nada cambia hasta que alguien desmarca algo).
+    const cfgForOptional = loadConfig();
+    const optionalChoices = (cfgForOptional.optionalModChoices && cfgForOptional.optionalModChoices[modpackId]) || {};
+    const remoteMods = manifest.mods
+        .map(m => ({ type: 'mod', ...m })) // [{id, filename, filesize, sha1, type}]
+        .filter(m => !(m.optional && optionalChoices[m.id] === false));
     const localMods = (localMeta.mods || []).map(m => ({ type: 'mod', ...m }));
 
     const remoteById = new Map(remoteMods.map(m => [m.id, m]));
@@ -1442,21 +1501,42 @@ function upsertAccount(accounts, account) {
 
 // Lo que ve el renderer de cada cuenta guardada: nunca el token/auth interno,
 // solo lo necesario para pintar la lista y poder pedir el cambio por id.
+// "premium" viene de la sesión con el backend (true para Microsoft, false
+// para offline) y decide si la UI deja compartir/generar invitaciones.
 function toPublicAccount(account) {
-    return { id: account.id, type: account.type, username: account.username, uuid: account.uuid || null };
+    return {
+        id: account.id,
+        type: account.type,
+        username: account.username,
+        uuid: account.uuid || null,
+        premium: !!(account.session && account.session.premium)
+    };
 }
 
-ipcMain.handle('login-offline', (event, username) => {
+ipcMain.handle('login-offline', async (event, username) => {
     const name = (username || 'Jugador').trim() || 'Jugador';
-    const account = { id: `offline:${name.toLowerCase()}`, type: 'offline', username: name };
+    const uuid = offlineUuidFromUsername(name);
+    const account = { id: `offline:${name.toLowerCase()}`, type: 'offline', username: name, uuid };
+
+    // Las cuentas offline ahora sí pueden crear y unirse a modpacks: el
+    // backend las registra como "no premium". Lo único que no pueden hacer
+    // es compartir/generar invitaciones (ver requirePremium en el backend).
+    // Si el backend no está disponible no bloqueamos el login local, igual
+    // que en Microsoft: simplemente no habrá modpacks hasta que se pueda
+    // contactar con el servidor.
+    let session = null;
+    try {
+        const verified = await verifyOfflineSessionWithBackend(name);
+        session = { token: verified.token, uuid: verified.uuid, username: verified.username, premium: false };
+    } catch (err) {
+        console.warn('[WARN] No se pudo registrar la cuenta offline con el backend de modpacks:', err.message);
+    }
+    account.session = session;
 
     const cfg = loadConfig();
     const accounts = upsertAccount(cfg.accounts || [], account);
-    // Las cuentas offline no pueden usar el sistema de modpacks (necesitamos
-    // una identidad verificada de Microsoft para dar acceso por usuario), así
-    // que al cambiar a offline limpiamos cualquier sesión de servidor previa.
-    saveConfig({ account, session: null, activeModpack: null, accounts, activeAccountId: account.id });
-    return account;
+    saveConfig({ account, session, activeModpack: null, accounts, activeAccountId: account.id });
+    return toPublicAccount(account);
 });
 
 ipcMain.handle('login-microsoft', async () => {
@@ -1489,13 +1569,14 @@ ipcMain.handle('login-microsoft', async () => {
         let session = null;
         try {
             const verified = await verifySessionWithBackend(mclcAuth.access_token);
-            session = { token: verified.token, uuid: verified.uuid, username: verified.username };
+            session = { token: verified.token, uuid: verified.uuid, username: verified.username, premium: !!verified.premium };
         } catch (err) {
             console.warn('[WARN] No se pudo verificar la sesión con el backend de modpacks:', err.message);
             // No bloqueamos el login normal por esto: el usuario puede jugar
             // igualmente, solo no podrá usar modpacks hasta que el backend
             // esté disponible.
         }
+        account.session = session;
 
         const cfg = loadConfig();
         const accounts = upsertAccount(cfg.accounts || [], { ...account, session });
@@ -1511,8 +1592,25 @@ ipcMain.handle('login-microsoft', async () => {
     }
 });
 
-ipcMain.handle('logout', () => {
+// Avisa al backend para que invalide el JWT de inmediato (token_version).
+// Es un "mejor esfuerzo": si el backend no responde, no bloqueamos el
+// logout local por eso, simplemente el token seguirá siendo técnicamente
+// válido en el servidor hasta que caduque solo a los 30 días.
+async function bestEffortBackendLogout(token) {
+    if (!token) return;
+    try {
+        await fetchWithTimeout(`${getBackendUrl()}/api/auth/logout`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` }
+        }, 8000);
+    } catch (err) {
+        console.warn('[WARN] No se pudo avisar al backend del logout:', err.message);
+    }
+}
+
+ipcMain.handle('logout', async () => {
     const cfg = loadConfig();
+    if (cfg.session && cfg.session.token) await bestEffortBackendLogout(cfg.session.token);
     delete cfg.account;
     cfg.session = null;
     cfg.activeModpack = null;
@@ -1531,20 +1629,22 @@ ipcMain.handle('switch-account', (event, { id }) => {
     const found = (cfg.accounts || []).find((a) => a.id === id);
     if (!found) throw new Error('Esa cuenta ya no está guardada. Vuelve a iniciar sesión.');
 
-    const account = { id: found.id, type: found.type, username: found.username, uuid: found.uuid, auth: found.auth };
-    // Cambiar de cuenta implica soltar el modpack activo: los modpacks están
-    // ligados a la identidad de Microsoft que los creó/tiene acceso, y una
-    // cuenta offline no puede usarlos en absoluto.
+    const account = { id: found.id, type: found.type, username: found.username, uuid: found.uuid, auth: found.auth, session: found.session || null };
+    // Cambiar de cuenta implica soltar el modpack activo (los modpacks están
+    // ligados a la identidad de quien los creó/tiene acceso). No cerramos la
+    // sesión de la cuenta que se deja de usar: así se puede volver a ella sin
+    // tener que volver a iniciar sesión.
     saveConfig({ account, session: found.session || null, activeModpack: null, activeAccountId: found.id });
     return toPublicAccount(account);
 });
 
-ipcMain.handle('remove-account', (event, { id }) => {
+ipcMain.handle('remove-account', async (event, { id }) => {
     const cfg = loadConfig();
     const accounts = (cfg.accounts || []).filter((a) => a.id !== id);
     const patch = { accounts };
     const wasActive = cfg.activeAccountId === id;
     if (wasActive) {
+        if (cfg.session && cfg.session.token) await bestEffortBackendLogout(cfg.session.token);
         patch.account = null;
         patch.session = null;
         patch.activeAccountId = null;
@@ -1566,12 +1666,29 @@ ipcMain.handle('select-java-path', async () => {
 
 ipcMain.handle('auto-detect-java', () => findNewestJava());
 
-ipcMain.handle('get-latest-mc-version', () => getMinecraftVersionToLaunch());
+ipcMain.handle('get-latest-mc-version', async () => (await getMinecraftVersionToLaunch()).version);
 ipcMain.handle('get-release-versions', () => getReleaseVersionsToShow());
 
 ipcMain.handle('set-language', (event, lang) => saveConfig({ language: lang }));
 
 ipcMain.handle('set-color-theme', (event, theme) => saveConfig({ colorTheme: theme }));
+
+// Elección local del jugador sobre qué mods "opcionales" de un modpack
+// quiere tener instalados (ver el filtro en syncModpackImpl). Ausencia de
+// entrada = incluido (comportamiento por defecto, igual que antes de que
+// existiera esta opción).
+ipcMain.handle('get-optional-mod-choices', (event, { id }) => {
+    const cfg = loadConfig();
+    return (cfg.optionalModChoices && cfg.optionalModChoices[id]) || {};
+});
+
+ipcMain.handle('set-optional-mod-choice', (event, { id, modId, included }) => {
+    const cfg = loadConfig();
+    const optionalModChoices = { ...(cfg.optionalModChoices || {}) };
+    optionalModChoices[id] = { ...(optionalModChoices[id] || {}), [modId]: included };
+    saveConfig({ optionalModChoices });
+    return optionalModChoices[id];
+});
 
 // Minutos totales jugados con este modpack (o "vanilla"), acumulados en
 // local cada vez que se cierra una partida. Es solo un contador cosmético,
@@ -1756,6 +1873,30 @@ ipcMain.handle('modpacks-create-invite', async (event, { id, maxUses, expiresHou
         method: 'POST',
         body: { max_uses: maxUses || null, expires_in_hours: expiresHours || null }
     });
+});
+
+ipcMain.handle('modpacks-list-invites', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}/invites`);
+});
+
+ipcMain.handle('modpacks-revoke-invite', async (event, { id, token }) => {
+    return apiRequest(`/api/modpacks/${id}/invites/${token}`, { method: 'DELETE' });
+});
+
+ipcMain.handle('modpacks-list-access', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}/access`);
+});
+
+ipcMain.handle('modpacks-revoke-access', async (event, { id, uuid }) => {
+    return apiRequest(`/api/modpacks/${id}/access/${uuid}`, { method: 'DELETE' });
+});
+
+ipcMain.handle('modpacks-list-versions', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}/versions`);
+});
+
+ipcMain.handle('modpacks-restore-version', async (event, { id, versionId }) => {
+    return apiRequest(`/api/modpacks/${id}/versions/${versionId}/restore`, { method: 'POST' });
 });
 
 ipcMain.handle('modpacks-redeem-invite', async (event, { token }) => {
@@ -1980,8 +2121,15 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
         root = instanceDir(activeModpack.id);
         mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
     } else {
-        versionNumber = await getMinecraftVersionToLaunch();
+        const resolved = await getMinecraftVersionToLaunch();
+        versionNumber = resolved.version;
         root = VANILLA_ROOT;
+        if (resolved.fallback) {
+            mainWindow.webContents.send('game-status', {
+                type: 'version-fallback-warning',
+                message: `No se pudo comprobar cuál es la última versión de Minecraft (¿sin conexión?). Se va a usar la ${versionNumber}${getInstalledVanillaVersions().length ? ' (la última que tienes instalada)' : ''}.`
+            });
+        }
         mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
     }
 

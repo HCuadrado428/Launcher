@@ -116,6 +116,13 @@ const modrinthResults = document.getElementById('modrinthResults');
 const closeModsModalBtn = document.getElementById('closeModsModalBtn');
 const generateInviteBtn = document.getElementById('generateInviteBtn');
 const inviteResultBox = document.getElementById('inviteResultBox');
+const inviteField = document.getElementById('inviteField');
+const inviteNonPremiumHint = document.getElementById('inviteNonPremiumHint');
+const accessManagementSection = document.getElementById('accessManagementSection');
+const invitesList = document.getElementById('invitesList');
+const accessList = document.getElementById('accessList');
+const versionHistorySection = document.getElementById('versionHistorySection');
+const versionsList = document.getElementById('versionsList');
 const deleteModpackBtn = document.getElementById('deleteModpackBtn');
 const repairModpackBtn = document.getElementById('repairModpackBtn');
 const verifyModpackBtn = document.getElementById('verifyModpackBtn');
@@ -182,9 +189,12 @@ function renderAccount(account) {
         avatar.classList.remove('avatar-render');
         avatar.innerHTML = '';
         avatar.innerText = (account.username || '?')[0].toUpperCase();
-        // Las cuentas offline no tienen identidad verificable en el servidor
-        // de modpacks, así que no pueden crear ni unirse a ninguno.
-        openModpacksBtn.disabled = true;
+        // Las cuentas offline ahora sí se registran en el backend (como "no
+        // premium"): pueden crear modpacks propios y unirse a los que les
+        // compartan. Lo único que no pueden hacer es generar invitaciones
+        // para compartir los suyos (ver el gateo por account.premium en
+        // openModsModal).
+        openModpacksBtn.disabled = false;
     }
 }
 
@@ -630,6 +640,8 @@ window.electronAPI.onGameStatus((data) => {
         resetToIdle();
     } else if (data.type === 'java-warning') {
         showToast(data.message, 'warning');
+    } else if (data.type === 'version-fallback-warning') {
+        showToast(data.message, 'warning');
     } else if (data.type === 'modpack-removed') {
         showToast(data.message, 'error');
         document.getElementById('mainScreen').dataset.modpackActive = '';
@@ -804,7 +816,7 @@ function modpackItemHtml(pack, isOwner) {
                 <div class="modpack-card-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
             </div>
             <div class="modpack-card-actions">
-                ${isOwner ? `<button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}">${t('modpacks.manage')}</button>` : ''}
+                <button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-is-owner="${isOwner}">${isOwner ? t('modpacks.manage') : t('modpacks.manageShared')}</button>
                 <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
             </div>
         </div>
@@ -845,7 +857,7 @@ function renderModpackLists() {
         : `<div class="empty-hint">${t(emptySharedKey)}</div>`;
 
     document.querySelectorAll('.manage-btn').forEach(btn => {
-        btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader));
+        btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.isOwner === 'true'));
     });
     document.querySelectorAll('.select-btn').forEach(btn => {
         btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
@@ -1040,13 +1052,16 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, 
 // --- Modal de gestión de mods ---
 
 let currentModsModalType = 'mod';
+let currentModsModalIsOwner = true;
 let currentManifestMods = [];
+let currentOptionalChoices = {};
 
-async function openModsModal(id, name, mcVersion, loader) {
+async function openModsModal(id, name, mcVersion, loader, isOwner = true) {
     currentModsModalId = id;
     currentModsModalName = name;
     currentModsModalMcVersion = mcVersion;
     currentModsModalLoader = loader;
+    currentModsModalIsOwner = isOwner;
     currentModsModalType = 'mod';
     modsTypeTab.classList.add('active');
     resourcepacksTypeTab.classList.remove('active');
@@ -1056,9 +1071,113 @@ async function openModsModal(id, name, mcVersion, loader) {
     inviteResultBox.innerText = '';
     modrinthSearchInput.value = '';
     modrinthResults.innerHTML = '';
+
+    // Añadir mods, compartir, cambiar portada y borrar solo tiene sentido
+    // (y el backend solo lo permite) para el dueño del modpack. Antes esto
+    // ni se mostraba a quien no era dueño porque directamente no tenía forma
+    // de abrir este modal para un modpack compartido; ahora que sí puede
+    // (para poder reparar/verificar su propia instalación), se ocultan estas
+    // secciones en vez de dejar que el jugador choque con un 403.
+    addModBtn.style.display = isOwner ? '' : 'none';
+    document.querySelector('.modrinth-search').style.display = isOwner ? '' : 'none';
+    inviteField.style.display = isOwner ? '' : 'none';
+    accessManagementSection.style.display = isOwner ? '' : 'none';
+    versionHistorySection.style.display = isOwner ? '' : 'none';
+    setCoverBtn.style.display = isOwner ? '' : 'none';
+    deleteModpackBtn.style.display = isOwner ? '' : 'none';
+
+    if (isOwner) {
+        const isPremium = !currentAccount || currentAccount.premium !== false;
+        generateInviteBtn.style.display = isPremium ? '' : 'none';
+        inviteNonPremiumHint.style.display = isPremium ? 'none' : '';
+        await loadInvitesAndAccess();
+        await loadVersionHistory();
+    }
+
     modsModal.classList.add('active');
     await reloadModsList();
     await refreshModpackHealth(id);
+}
+
+async function loadInvitesAndAccess() {
+    try {
+        const [invites, accessUsers] = await Promise.all([
+            window.electronAPI.listInvites(currentModsModalId),
+            window.electronAPI.listModpackAccess(currentModsModalId)
+        ]);
+
+        invitesList.innerHTML = invites.length
+            ? invites.map(inv => `
+                <div class="mod-item" data-token="${inv.token}">
+                    <span>${inv.uses}${inv.max_uses ? '/' + inv.max_uses : ''} ${t('modal.access.uses')}${inv.expires_at ? ' · ' + new Date(inv.expires_at).toLocaleDateString() : ''}</span>
+                    <button class="mod-item-remove" data-token="${inv.token}" title="${t('modal.access.revoke')}">&times;</button>
+                </div>
+            `).join('')
+            : `<div class="empty-hint">${t('modal.access.noInvites')}</div>`;
+        invitesList.querySelectorAll('.mod-item-remove').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try {
+                    await window.electronAPI.revokeInvite(currentModsModalId, btn.dataset.token);
+                    showToast(t('modal.access.inviteRevoked'), 'info');
+                    await loadInvitesAndAccess();
+                } catch (err) {
+                    showToast(err.message || t('modal.access.revokeFailed'), 'error');
+                }
+            });
+        });
+
+        accessList.innerHTML = accessUsers.length
+            ? accessUsers.map(u => `
+                <div class="mod-item" data-uuid="${u.uuid}">
+                    <span>${escapeHtml(u.username || u.uuid)}</span>
+                    <button class="mod-item-remove" data-uuid="${u.uuid}" title="${t('modal.access.revoke')}">&times;</button>
+                </div>
+            `).join('')
+            : `<div class="empty-hint">${t('modal.access.noAccess')}</div>`;
+        accessList.querySelectorAll('.mod-item-remove').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                try {
+                    await window.electronAPI.revokeModpackAccess(currentModsModalId, btn.dataset.uuid);
+                    showToast(t('modal.access.accessRevoked'), 'info');
+                    await loadInvitesAndAccess();
+                } catch (err) {
+                    showToast(err.message || t('modal.access.revokeFailed'), 'error');
+                }
+            });
+        });
+    } catch (err) {
+        showToast(err.message || t('modal.access.loadFailed'), 'error');
+    }
+}
+
+async function loadVersionHistory() {
+    try {
+        const versions = await window.electronAPI.listModpackVersions(currentModsModalId);
+        versionsList.innerHTML = versions.length
+            ? versions.map(v => `
+                <div class="mod-item" data-version-id="${v.id}">
+                    <span>${new Date(v.created_at).toLocaleString()} · ${v.mod_count} mods</span>
+                    <button class="secondary" data-version-id="${v.id}" data-restore>${t('modal.versions.restore')}</button>
+                </div>
+            `).join('')
+            : `<div class="empty-hint">${t('modal.versions.empty')}</div>`;
+        versionsList.querySelectorAll('[data-restore]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const confirmed = confirm(t('modal.versions.restoreConfirm'));
+                if (!confirmed) return;
+                try {
+                    await window.electronAPI.restoreModpackVersion(currentModsModalId, btn.dataset.versionId);
+                    showToast(t('modal.versions.restored'), 'info');
+                    await reloadModsList();
+                    await loadVersionHistory();
+                } catch (err) {
+                    showToast(err.message || t('modal.versions.restoreFailed'), 'error');
+                }
+            });
+        });
+    } catch (err) {
+        showToast(err.message || t('modal.versions.loadFailed'), 'error');
+    }
 }
 
 // El botón "Reparar instalación" borra y vuelve a descargar todo, así que
@@ -1092,13 +1211,20 @@ function renderModsList() {
     const filtered = currentManifestMods.filter(mod => (mod.type || 'mod') === currentModsModalType);
     const emptyKey = currentModsModalType === 'resourcepack' ? 'modal.resourcepacks.empty' : 'modal.mods.empty';
     modsList.innerHTML = filtered.length
-        ? filtered.map(mod => `
+        ? filtered.map(mod => {
+            const included = currentOptionalChoices[mod.id] !== false; // ausencia = incluido
+            const optionalToggle = mod.optional
+                ? `<label class="mod-item-optional-toggle"><input type="checkbox" class="mod-item-optional-checkbox" data-mod-id="${mod.id}" ${included ? 'checked' : ''}> ${t('modal.mods.includeToggle')}</label>`
+                : '';
+            return `
             <div class="mod-item" data-mod-id="${mod.id}">
                 <span>${escapeHtml(mod.filename)}${mod.optional ? ` <span class="mod-item-badge">${t('modal.mods.optionalBadge')}</span>` : ''}</span>
-                ${mod.source === 'modrinth' ? `<button class="mod-item-update" data-mod-id="${mod.id}" title="${t('modal.mods.checkUpdate')}">↻</button>` : ''}
-                <button class="mod-item-remove" data-mod-id="${mod.id}" title="Quitar">&times;</button>
+                ${optionalToggle}
+                ${currentModsModalIsOwner && mod.source === 'modrinth' ? `<button class="mod-item-update" data-mod-id="${mod.id}" title="${t('modal.mods.checkUpdate')}">↻</button>` : ''}
+                ${currentModsModalIsOwner ? `<button class="mod-item-remove" data-mod-id="${mod.id}" title="Quitar">&times;</button>` : ''}
             </div>
-        `).join('')
+        `;
+        }).join('')
         : `<div class="empty-hint">${t(emptyKey)}</div>`;
 
     modsList.querySelectorAll('.mod-item-remove').forEach(btn => {
@@ -1131,14 +1257,30 @@ function renderModsList() {
             }
         });
     });
+
+    modsList.querySelectorAll('.mod-item-optional-checkbox').forEach(cb => {
+        cb.addEventListener('change', async () => {
+            currentOptionalChoices = { ...currentOptionalChoices, [cb.dataset.modId]: cb.checked };
+            try {
+                await window.electronAPI.setOptionalModChoice(currentModsModalId, cb.dataset.modId, cb.checked);
+                showToast(t('modal.mods.optionalChoiceSaved'), 'info');
+            } catch (err) {
+                showToast(err.message || t('modal.mods.optionalChoiceFailed'), 'error');
+            }
+        });
+    });
 }
 
 async function reloadModsList() {
     if (!currentModsModalId) return;
     modsList.innerHTML = `<div class="empty-hint">${t('common.loading')}</div>`;
     try {
-        const manifest = await window.electronAPI.getModpackManifest(currentModsModalId);
+        const [manifest, choices] = await Promise.all([
+            window.electronAPI.getModpackManifest(currentModsModalId),
+            window.electronAPI.getOptionalModChoices(currentModsModalId)
+        ]);
         currentManifestMods = manifest.mods;
+        currentOptionalChoices = choices || {};
         renderModsList();
     } catch (err) {
         modsList.innerHTML = '';
@@ -1216,7 +1358,7 @@ async function runModrinthSearch() {
                 btn.disabled = true;
                 btn.innerText = '...';
                 try {
-                    await window.electronAPI.addModFromModrinth(
+                    const result = await window.electronAPI.addModFromModrinth(
                         currentModsModalId,
                         btn.dataset.projectId,
                         currentModsModalMcVersion,
@@ -1224,6 +1366,9 @@ async function runModrinthSearch() {
                         currentModsModalType
                     );
                     showToast(t('toast.modrinthAdded'), 'info');
+                    if (result && result.missing_dependencies && result.missing_dependencies.length) {
+                        showToast(t('modal.modrinth.missingDependencies', { names: result.missing_dependencies.join(', ') }), 'warning');
+                    }
                     await reloadModsList();
                 } catch (err) {
                     showToast(err.message || t('toast.modrinthAddFailed'), 'error');
@@ -1263,6 +1408,7 @@ generateInviteBtn.addEventListener('click', async () => {
             await navigator.clipboard.writeText(result.url);
             showToast(t('toast.inviteCopied'), 'info');
         }
+        await loadInvitesAndAccess();
     } catch (err) {
         showToast(err.message || t('toast.inviteCreateFailed'), 'error');
     }

@@ -91,6 +91,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data)),
     checkModUpdate: (id, modId) => ipcRenderer.invoke('modpacks-check-mod-update', { id, modId }),
 
+    // Invitaciones y acceso (solo el dueño puede usarlas de verdad; el
+    // backend las rechaza igualmente si no lo es)
+    listInvites: (id) => ipcRenderer.invoke('modpacks-list-invites', { id }),
+    revokeInvite: (id, token) => ipcRenderer.invoke('modpacks-revoke-invite', { id, token }),
+    listModpackAccess: (id) => ipcRenderer.invoke('modpacks-list-access', { id }),
+    revokeModpackAccess: (id, uuid) => ipcRenderer.invoke('modpacks-revoke-access', { id, uuid }),
+
+    // Historial de versiones (solo el dueño)
+    listModpackVersions: (id) => ipcRenderer.invoke('modpacks-list-versions', { id }),
+    restoreModpackVersion: (id, versionId) => ipcRenderer.invoke('modpacks-restore-version', { id, versionId }),
+
+    // Mods opcionales: elección local del jugador, por modpack
+    getOptionalModChoices: (id) => ipcRenderer.invoke('get-optional-mod-choices', { id }),
+    setOptionalModChoice: (id, modId, included) => ipcRenderer.invoke('set-optional-mod-choice', { id, modId, included }),
+
     // Se dispara cuando el backend responde 401 (JWT de 30 días caducado o
     // inválido) a cualquier petición autenticada. onGameStatus etc. se
     // suscriben una sola vez al arrancar, así que basta con un listener fijo

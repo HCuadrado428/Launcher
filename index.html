@@ -235,11 +235,30 @@
                 </details>
 
                 <hr class="modal-divider">
-                <div class="field">
+                <div class="field" id="inviteField">
                     <label data-i18n="modal.invite.label">Invitar a otros jugadores</label>
                     <button class="secondary" id="generateInviteBtn" data-i18n="modal.invite.generate">Generar link de invitación</button>
                     <div id="inviteResultBox" class="invite-result"></div>
+                    <div id="inviteNonPremiumHint" class="empty-hint" style="display:none;" data-i18n="modal.invite.premiumRequired">Compartir modpacks requiere una cuenta de Minecraft premium (Microsoft).</div>
                 </div>
+
+                <details class="collapsible" id="accessManagementSection">
+                    <summary data-i18n="modal.access.title">Invitaciones y acceso</summary>
+                    <div class="collapsible-body">
+                        <label class="access-subheading" data-i18n="modal.access.invitesHeading">Invitaciones activas</label>
+                        <div id="invitesList" class="mods-list"></div>
+                        <label class="access-subheading" data-i18n="modal.access.accessHeading">Jugadores con acceso</label>
+                        <div id="accessList" class="mods-list"></div>
+                    </div>
+                </details>
+
+                <details class="collapsible" id="versionHistorySection">
+                    <summary data-i18n="modal.versions.title">Historial de versiones</summary>
+                    <div class="collapsible-body">
+                        <div id="versionsList" class="mods-list"></div>
+                    </div>
+                </details>
+
                 <hr class="modal-divider">
                 <div class="button-stack">
                     <button id="setCoverBtn" class="secondary" data-i18n="modal.setCover">Cambiar portada</button>
