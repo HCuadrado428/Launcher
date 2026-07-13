@@ -408,8 +408,13 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
     let lastErr;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
+            // Antes eran 12/12: con tantos archivos pequeños a la vez, un
+            // antivirus escaneando cada uno en tiempo real puede saturar
+            // disco y CPU y ralentizar todo el sistema, no solo el
+            // launcher. 6/6 sigue siendo razonablemente rápido y es menos
+            // agresivo.
             await runInstallTask(
-                installDependenciesTask(resolved, { assetsDownloadConcurrency: 12, librariesDownloadConcurrency: 12 }),
+                installDependenciesTask(resolved, { assetsDownloadConcurrency: 6, librariesDownloadConcurrency: 6 }),
                 modpackId,
                 `Descargando librerías de ${loader}`
             );
@@ -770,9 +775,31 @@ function getFreeDiskSpaceBytes(targetPath) {
     }
 }
 
-// Compara el manifiesto del servidor con lo que hay en disco y descarga /
-// borra lo que haga falta. Emite progreso a la ventana mientras trabaja.
+// Sincronizar puede llegar a descargar miles de archivos pequeños en
+// paralelo (librerías/assets de Minecraft), y con un antivirus escaneando
+// cada archivo nuevo al vuelo eso satura el disco y la CPU del sistema
+// entero, no solo del launcher ("todo el ordenador va lento"). Bajarle la
+// prioridad al proceso mientras dura la sincronización no reduce el trabajo
+// en sí, pero le dice a Windows que priorice cualquier otra cosa que el
+// usuario esté haciendo mientras tanto.
 async function syncModpack(modpackId) {
+    let priorityLowered = false;
+    try {
+        os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+        priorityLowered = true;
+    } catch (err) {
+        // Alguna plataforma/permiso no lo soporta; no es crítico, seguimos igual.
+    }
+    try {
+        return await syncModpackImpl(modpackId);
+    } finally {
+        if (priorityLowered) {
+            try { os.setPriority(process.pid, os.constants.priority.PRIORITY_NORMAL); } catch (err) { /* ignorar */ }
+        }
+    }
+}
+
+async function syncModpackImpl(modpackId) {
     const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
     const localMeta = loadInstanceMeta(modpackId);
     fs.mkdirSync(instanceModsDir(modpackId), { recursive: true });
