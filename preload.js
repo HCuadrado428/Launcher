@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGameStatus: (callback) => ipcRenderer.on('game-status', (_event, data) => callback(data)),
     onGameProgress: (callback) => ipcRenderer.on('game-progress', (_event, data) => callback(data)),
     onGameLog: (callback) => ipcRenderer.on('game-log', (_event, line) => callback(line)),
+    openCrashLogsFolder: () => ipcRenderer.invoke('open-crash-logs-folder'),
 
     // Modpacks
     createModpack: (name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-create', { name, mcVersion, loader, loaderVersion }),
@@ -87,5 +88,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.on('modpack-sync-progress', listener);
         return () => ipcRenderer.removeListener('modpack-sync-progress', listener);
     },
-    onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data))
+    onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data)),
+    checkModUpdate: (id, modId) => ipcRenderer.invoke('modpacks-check-mod-update', { id, modId }),
+
+    // Se dispara cuando el backend responde 401 (JWT de 30 días caducado o
+    // inválido) a cualquier petición autenticada. onGameStatus etc. se
+    // suscriben una sola vez al arrancar, así que basta con un listener fijo
+    // aquí igual que con ellos.
+    onSessionExpired: (callback) => ipcRenderer.on('session-expired', () => callback())
 });

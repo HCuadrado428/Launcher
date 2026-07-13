@@ -772,6 +772,27 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     line-height: 1;
 }
 .mod-item-remove:hover { background: #ffffff10; }
+.mod-item-update {
+    width: auto;
+    background: none;
+    color: var(--accent);
+    padding: 4px 8px;
+    font-size: 15px;
+    line-height: 1;
+    border-radius: 6px;
+}
+.mod-item-update:hover { background: #ffffff10; }
+.mod-item-update:disabled { opacity: 0.5; }
+.mod-item-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+    background: #ffffff10;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-left: 6px;
+}
 
 .invite-result {
     margin-top: 10px;

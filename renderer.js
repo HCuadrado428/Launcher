@@ -70,6 +70,7 @@ const consoleLogBox = document.getElementById('consoleLogBox');
 const closeConsoleModalBtn = document.getElementById('closeConsoleModalBtn');
 const copyLogBtn = document.getElementById('copyLogBtn');
 const clearLogBtn = document.getElementById('clearLogBtn');
+const openCrashLogsBtn = document.getElementById('openCrashLogsBtn');
 const progressWrap = document.getElementById('progressWrap');
 const progressFill = document.getElementById('progressFill');
 const progressLabel = document.getElementById('progressLabel');
@@ -373,13 +374,17 @@ accountsList.addEventListener('click', async (e) => {
     } else if (removeBtn) {
         const confirmed = confirm(t('accounts.removeConfirm'));
         if (!confirmed) return;
-        const result = await window.electronAPI.removeAccount(removeBtn.dataset.id);
-        if (result.removedActive) {
-            currentAccount = null;
-            accountsModal.classList.remove('active');
-            showScreen('loginScreen');
-        } else {
-            await renderAccountsList();
+        try {
+            const result = await window.electronAPI.removeAccount(removeBtn.dataset.id);
+            if (result.removedActive) {
+                currentAccount = null;
+                accountsModal.classList.remove('active');
+                showScreen('loginScreen');
+            } else {
+                await renderAccountsList();
+            }
+        } catch (err) {
+            showToast(err.message || t('accounts.removeFailed'), 'error');
         }
     }
 });
@@ -708,6 +713,10 @@ clearLogBtn.addEventListener('click', () => {
     consoleLogBox.innerText = '';
 });
 
+openCrashLogsBtn.addEventListener('click', () => {
+    window.electronAPI.openCrashLogsFolder();
+});
+
 // ============================================================================
 // MODPACKS
 // ============================================================================
@@ -934,6 +943,71 @@ window.electronAPI.onInviteReceived((data) => {
     redeemInvite(data.token);
 });
 
+// El JWT del backend dura 30 días; cuando caduca, main.js ya cierra la
+// sesión local por su cuenta (ver apiRequest en main.js) y avisa aquí para
+// que la UI no se quede repitiendo "token inválido" en cada acción y en su
+// lugar vuelva a la pantalla de login con un aviso claro.
+window.electronAPI.onSessionExpired(() => {
+    modsModal.classList.remove('active');
+    accountsModal.classList.remove('active');
+    showToast(t('toast.sessionExpired'), 'warning');
+    showScreen('loginScreen');
+});
+
+// Accesibilidad de teclado en modales: antes ningún modal se podía cerrar
+// con Escape ni atrapaba el foco, así que un usuario navegando solo con
+// teclado podía "salirse" del modal con Tab hacia botones de detrás que ni
+// siquiera deberían ser alcanzables mientras el modal está abierto.
+const ALL_MODALS = [updateModal, modsModal, accountsModal, consoleModal, importModal];
+let lastFocusedBeforeModal = null;
+
+function getFocusableElements(container) {
+    return Array.from(container.querySelectorAll(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter((el) => el.offsetParent !== null);
+}
+
+function getActiveModal() {
+    return ALL_MODALS.find((m) => m.classList.contains('active')) || null;
+}
+
+ALL_MODALS.forEach((modal) => {
+    new MutationObserver(() => {
+        if (modal.classList.contains('active')) {
+            lastFocusedBeforeModal = document.activeElement;
+            const focusable = getFocusableElements(modal);
+            (focusable[0] || modal).focus();
+        } else if (lastFocusedBeforeModal) {
+            lastFocusedBeforeModal.focus();
+            lastFocusedBeforeModal = null;
+        }
+    }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+});
+
+document.addEventListener('keydown', (e) => {
+    const modal = getActiveModal();
+    if (!modal) return;
+
+    if (e.key === 'Escape') {
+        modal.classList.remove('active');
+        return;
+    }
+
+    if (e.key === 'Tab') {
+        const focusable = getFocusableElements(modal);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    }
+});
+
 async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, buttonEl) {
     const originalText = buttonEl.innerText;
     buttonEl.disabled = true;
@@ -1020,7 +1094,8 @@ function renderModsList() {
     modsList.innerHTML = filtered.length
         ? filtered.map(mod => `
             <div class="mod-item" data-mod-id="${mod.id}">
-                <span>${escapeHtml(mod.filename)}</span>
+                <span>${escapeHtml(mod.filename)}${mod.optional ? ` <span class="mod-item-badge">${t('modal.mods.optionalBadge')}</span>` : ''}</span>
+                ${mod.source === 'modrinth' ? `<button class="mod-item-update" data-mod-id="${mod.id}" title="${t('modal.mods.checkUpdate')}">↻</button>` : ''}
                 <button class="mod-item-remove" data-mod-id="${mod.id}" title="Quitar">&times;</button>
             </div>
         `).join('')
@@ -1034,6 +1109,25 @@ function renderModsList() {
                 await reloadModsList();
             } catch (err) {
                 showToast(err.message || t('toast.modRemoveFailed'), 'error');
+            }
+        });
+    });
+
+    modsList.querySelectorAll('.mod-item-update').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            try {
+                const result = await window.electronAPI.checkModUpdate(currentModsModalId, btn.dataset.modId);
+                showToast(
+                    result.has_update
+                        ? t('modal.mods.updateAvailable', { version: result.latest_version_number || '' })
+                        : t('modal.mods.upToDate'),
+                    result.has_update ? 'info' : 'info'
+                );
+            } catch (err) {
+                showToast(err.message || t('modal.mods.updateCheckFailed'), 'error');
+            } finally {
+                btn.disabled = false;
             }
         });
     });

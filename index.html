@@ -39,7 +39,7 @@
         </div>
 
         <!-- POPUP DE NUEVA ACTUALIZACIÓN DISPONIBLE -->
-        <div id="updateModal" class="modal-overlay">
+        <div id="updateModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
             <div class="modal-card card update-popup-card">
                 <h3 style="margin-top:0;" data-i18n="update.popup.title">🔥 Nueva actualización disponible</h3>
                 <p id="updatePopupMessage" data-i18n="update.popup.message">Hay una nueva versión del launcher. ¿Quieres descargarla ahora?</p>
@@ -208,7 +208,7 @@
         </div>
 
         <!-- MODAL DE GESTIÓN DE MODS -->
-        <div id="modsModal" class="modal-overlay">
+        <div id="modsModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
             <div class="modal-card card">
                 <div class="modpacks-header">
                     <h3 id="modsModalTitle" style="margin: 0;" data-i18n="modal.title">Gestionar mods</h3>
@@ -252,7 +252,7 @@
         </div>
 
         <!-- MODAL DE CAMBIO DE CUENTA -->
-        <div id="accountsModal" class="modal-overlay">
+        <div id="accountsModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
             <div class="modal-card card">
                 <div class="modpacks-header">
                     <h3 style="margin: 0;" data-i18n="accounts.title">Cuentas guardadas</h3>
@@ -268,7 +268,7 @@
         </div>
 
         <!-- MODAL DE CONSOLA DEL JUEGO -->
-        <div id="consoleModal" class="modal-overlay">
+        <div id="consoleModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
             <div class="modal-card card console-modal-card">
                 <div class="modpacks-header">
                     <h3 style="margin: 0;" data-i18n="console.title">Consola del juego</h3>
@@ -278,12 +278,13 @@
                 <div class="console-actions">
                     <button class="secondary" id="copyLogBtn" data-i18n="console.copy">Copiar log</button>
                     <button class="secondary" id="clearLogBtn" data-i18n="console.clear">Limpiar</button>
+                    <button class="secondary" id="openCrashLogsBtn" data-i18n="console.openCrashLogs">Abrir carpeta de logs</button>
                 </div>
             </div>
         </div>
 
         <!-- MODAL DE IMPORTAR MODPACK LOCAL -->
-        <div id="importModal" class="modal-overlay">
+        <div id="importModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
             <div class="modal-card card">
                 <div class="modpacks-header">
                     <h3 style="margin: 0;" data-i18n="import.title">Importar modpack instalado</h3>

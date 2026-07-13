@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Notification, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Notification, Tray, Menu, nativeImage, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -45,6 +45,36 @@ let isQuitting = false;
 let playSessionStart = null;
 let playSessionTargetKey = null;
 
+// Buffer del log de la partida actual, solo para poder volcarlo a disco si
+// el juego crashea (código de cierre != 0). Antes vivía únicamente en la
+// consola del renderer (gameLogLines allí), así que si el jugador cerraba el
+// launcher sin haber mirado la consola, el log del crash se perdía para
+// siempre. Se reinicia en cada "launch-game".
+let currentGameLogLines = [];
+const CRASH_LOGS_DIR = path.join(app.getPath('userData'), 'crash-logs');
+const MAX_CRASH_LOG_FILES = 20;
+
+function persistCrashLog(code) {
+    try {
+        fs.mkdirSync(CRASH_LOGS_DIR, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filePath = path.join(CRASH_LOGS_DIR, `crash-${stamp}.log`);
+        fs.writeFileSync(filePath, `Código de salida: ${code}\n\n${currentGameLogLines.join('\n')}`);
+
+        // No dejamos que la carpeta crezca sin límite: nos quedamos solo con
+        // los MAX_CRASH_LOG_FILES más recientes.
+        const files = fs.readdirSync(CRASH_LOGS_DIR)
+            .filter((f) => f.startsWith('crash-') && f.endsWith('.log'))
+            .sort();
+        const excess = files.length - MAX_CRASH_LOG_FILES;
+        for (let i = 0; i < excess; i++) {
+            fs.unlinkSync(path.join(CRASH_LOGS_DIR, files[i]));
+        }
+    } catch (err) {
+        console.error('[ERROR] No se pudo guardar el log de crash:', err);
+    }
+}
+
 const APP_ICON_PATH = path.join(__dirname, 'build', 'icon.ico');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
@@ -61,11 +91,40 @@ const VANILLA_ROOT = path.join(app.getPath('appData'), '.milauncher');
 // que hacen eso) sin corromper la caché por accidente.
 let configCache = null;
 
+// config.json guarda el token de sesión del backend y el access_token de
+// Microsoft de cada cuenta (mclcAuth) — texto plano ahí era un secreto de
+// hasta 30 días legible por cualquiera con acceso al disco. safeStorage usa
+// el almacén de credenciales del sistema (DPAPI en Windows, Keychain en
+// macOS) para cifrar el archivo en reposo. Si no está disponible (p. ej. sin
+// keychain configurado en Linux) se cae a texto plano en vez de romper la
+// app. readConfigFile() también sabe leer un config.json antiguo sin cifrar
+// (de antes de este cambio) probando el JSON.parse directo si el
+// descifrado falla.
+function readConfigFile() {
+    const raw = fs.readFileSync(CONFIG_PATH);
+    if (safeStorage.isEncryptionAvailable()) {
+        try {
+            return JSON.parse(safeStorage.decryptString(raw));
+        } catch (err) {
+            // No cifrado todavía (versión anterior) o corrupto; probamos texto plano.
+        }
+    }
+    return JSON.parse(raw.toString('utf-8'));
+}
+
+function writeConfigFile(merged) {
+    const json = JSON.stringify(merged, null, 2);
+    if (safeStorage.isEncryptionAvailable()) {
+        fs.writeFileSync(CONFIG_PATH, safeStorage.encryptString(json));
+    } else {
+        fs.writeFileSync(CONFIG_PATH, json);
+    }
+}
+
 function loadConfig() {
     if (configCache === null) {
         try {
-            const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
-            configCache = JSON.parse(raw);
+            configCache = readConfigFile();
         } catch (err) {
             configCache = {};
         }
@@ -77,7 +136,7 @@ function saveConfig(partial) {
     try {
         const current = configCache || loadConfig();
         const merged = { ...current, ...partial };
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify(merged, null, 2));
+        writeConfigFile(merged);
         configCache = merged;
         return { ...merged };
     } catch (err) {
@@ -694,6 +753,20 @@ async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {
         try { data = await res.json(); } catch (err) { /* respuesta sin cuerpo JSON */ }
 
         if (!res.ok) {
+            // Un 401 significa que el JWT guardado (dura 30 días) ha caducado o
+            // es inválido. err.status no sobrevive el paso por IPC hacia el
+            // renderer (Electron solo serializa el .message de los errores
+            // lanzados desde un ipcMain.handle), así que en vez de depender de
+            // que cada llamante compruebe el status, cerramos la sesión aquí
+            // mismo y avisamos al renderer por un evento aparte para que pueda
+            // volver a la pantalla de login sin quedarse pillado repitiendo
+            // "token inválido" en cada acción.
+            if (res.status === 401) {
+                saveConfig({ session: null });
+                if (mainWindow) {
+                    mainWindow.webContents.send('session-expired');
+                }
+            }
             const err = new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
             err.status = res.status;
             throw err;
@@ -1287,6 +1360,7 @@ if (!gotLock) {
 launcher.on('debug', (e) => console.log(`[DEBUG] ${e}`));
 launcher.on('data', (e) => {
     console.log(`[GAME] ${e}`);
+    currentGameLogLines.push(String(e));
     if (mainWindow) mainWindow.webContents.send('game-log', String(e));
 });
 
@@ -1316,6 +1390,7 @@ launcher.on('close', (code) => {
         mainWindow.webContents.send('game-status', { type: 'closed', code });
     }
     if (code !== 0) {
+        persistCrashLog(code);
         notify('Ember Launcher', `Minecraft se cerró inesperadamente (código ${code}). Revisa la consola del juego para más detalles.`);
     }
 });
@@ -1612,6 +1687,10 @@ ipcMain.handle('modpacks-remove-mod', async (event, { id, modId }) => {
     return apiRequest(`/api/modpacks/${id}/mods/${modId}`, { method: 'DELETE' });
 });
 
+ipcMain.handle('modpacks-check-mod-update', async (event, { id, modId }) => {
+    return apiRequest(`/api/modpacks/${id}/mods/${modId}/check-update`);
+});
+
 ipcMain.handle('search-modrinth', async (event, { query, mcVersion, loader, projectType }) => {
     return searchModrinth(query, mcVersion, loader, projectType);
 });
@@ -1687,11 +1766,22 @@ ipcMain.handle('modpacks-sync', async (event, { id }) => {
     return syncModpack(id);
 });
 
-// "Reparar instalación": borra la carpeta local de la instancia (mods, loader
-// instalado, meta de sincronización...) y vuelve a sincronizar desde cero,
-// por si algo se corrompió y una sincronización normal no lo arregla.
+// "Reparar instalación": borra solo lo que gestiona el launcher (mods,
+// resourcepacks del modpack, loader instalado y su meta de sincronización) y
+// vuelve a sincronizar desde cero. Deliberadamente NO toca saves/, config/,
+// options.txt, screenshots/ ni ningún otro dato del jugador — instanceDir()
+// es la misma carpeta que se usa como "root" al lanzar el juego, así que
+// borrarla entera (como se hacía antes) se cargaba los mundos guardados.
+const REPAIR_WIPE_SUBPATHS = ['mods', 'resourcepacks', 'versions', 'libraries'];
+async function wipeRepairableInstanceData(modpackId) {
+    const dir = instanceDir(modpackId);
+    for (const sub of REPAIR_WIPE_SUBPATHS) {
+        await fs.promises.rm(path.join(dir, sub), { recursive: true, force: true });
+    }
+    await fs.promises.rm(instanceMetaPath(modpackId), { force: true });
+}
 ipcMain.handle('modpacks-repair', async (event, { id }) => {
-    await fs.promises.rm(instanceDir(id), { recursive: true, force: true });
+    await wipeRepairableInstanceData(id);
     return syncModpack(id);
 });
 
@@ -1868,7 +1958,9 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
             synced = await syncModpack(activeModpack.id);
         } catch (err) {
             if (err.status === 404 || err.status === 403) {
-                try { await fs.promises.rm(instanceDir(activeModpack.id), { recursive: true, force: true }); } catch (e) { /* ignorar */ }
+                // No borramos la carpeta de la instancia: puede contener mundos
+                // guardados del jugador que quiera conservar aunque pierda acceso
+                // al modpack (por ejemplo, si el dueño lo vuelve a compartir).
                 saveConfig({ activeModpack: null });
                 mainWindow.webContents.send('game-status', {
                     type: 'modpack-removed',
@@ -1919,6 +2011,7 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
     };
 
     try {
+        currentGameLogLines = [];
         gameProcess = await launcher.launch(opts);
         mainWindow.webContents.send('game-status', { type: 'launched' });
         playSessionStart = Date.now();
@@ -1931,6 +2024,11 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
             message: err && err.message ? err.message : String(err)
         });
     }
+});
+
+ipcMain.handle('open-crash-logs-folder', () => {
+    fs.mkdirSync(CRASH_LOGS_DIR, { recursive: true });
+    shell.openPath(CRASH_LOGS_DIR);
 });
 
 ipcMain.on('stop-game', () => {
