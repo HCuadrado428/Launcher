@@ -337,6 +337,30 @@
     <div id="toastWrap"></div>
 
     <script src="i18n.js"></script>
-    <script src="renderer.js"></script>
+    <!--
+        renderer.js (antes ~1700 líneas en un solo archivo) se dividió en
+        renderer/ por el mismo motivo que main.js: era el archivo más
+        sobrecargado del proyecto. Son scripts clásicos (no type="module"),
+        así que comparten el mismo ámbito global de siempre — dom.js debe ir
+        primero porque el resto hace "elemento.addEventListener(...)" nada
+        más cargarse, y utils.js debe ir antes de modpacks.js porque este
+        llama a debounce() también nada más cargarse. El resto del orden es
+        por claridad, no por necesidad: casi todo lo demás solo se usa desde
+        dentro de callbacks/async functions, que no se ejecutan hasta que la
+        página entera ya ha terminado de cargar.
+    -->
+    <script src="renderer/dom.js"></script>
+    <script src="renderer/utils.js"></script>
+    <script src="renderer/particles.js"></script>
+    <script src="renderer/modalAccessibility.js"></script>
+    <script src="renderer/account.js"></script>
+    <script src="renderer/updates.js"></script>
+    <script src="renderer/settings.js"></script>
+    <script src="renderer/modpacks.js"></script>
+    <script src="renderer/modsModal.js"></script>
+    <script src="renderer/modrinthSearch.js"></script>
+    <script src="renderer/localImport.js"></script>
+    <script src="renderer/game.js"></script>
+    <script src="renderer/init.js"></script>
 </body>
 </html>

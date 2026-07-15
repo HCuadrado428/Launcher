@@ -909,7 +909,12 @@ ipcMain.handle('modpacks-create', async (event, { name, mcVersion, loader, loade
 });
 
 ipcMain.handle('modpacks-delete', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}`, { method: 'DELETE' });
+    const result = await apiRequest(`/api/modpacks/${id}`, { method: 'DELETE' });
+    // El modpack ya no existe en el servidor, así que tampoco tiene sentido
+    // dejar sus mods/librerías descargados ocupando disco local. wipeRepairableInstanceData
+    // conserva saves/config/screenshots por si el jugador quiere quedárselos.
+    await wipeRepairableInstanceData(id);
+    return result;
 });
 
 ipcMain.handle('modpacks-mine', async () => {
@@ -1087,7 +1092,13 @@ ipcMain.handle('get-storage-usage', async () => {
 });
 
 ipcMain.handle('modpacks-leave', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}/leave`, { method: 'POST' });
+    const result = await apiRequest(`/api/modpacks/${id}/leave`, { method: 'POST' });
+    // Sin esto, los mods/librerías ya descargados de ese modpack se quedaban
+    // en disco para siempre sin ninguna forma de recuperar el espacio desde
+    // la interfaz. wipeRepairableInstanceData conserva saves/config/
+    // screenshots por si el jugador quiere quedárselos igualmente.
+    await wipeRepairableInstanceData(id);
+    return result;
 });
 
 ipcMain.handle('modpacks-redeem-invite', async (event, { token }) => {
