@@ -257,7 +257,14 @@ async function redeemInvite(rawToken) {
     }
 }
 
-redeemInviteBtn.addEventListener('click', () => redeemInvite(inviteLinkInput.value));
+redeemInviteBtn.addEventListener('click', async () => {
+    redeemInviteBtn.disabled = true;
+    try {
+        await redeemInvite(inviteLinkInput.value);
+    } finally {
+        redeemInviteBtn.disabled = false;
+    }
+});
 
 // Cuando el sistema operativo abre un link milauncher://invite/TOKEN
 window.electronAPI.onInviteReceived((data) => {

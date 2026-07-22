@@ -15,7 +15,17 @@ jobs:
         with:
           node-version: '22.5'
       - run: npm ci
+      - run: npm run lint
       - run: npm test
+      # No bloqueante: minecraft-launcher-core (usado de verdad para lanzar
+      # el juego) arrastra "request" deprecado, y @xmcl/installer una
+      # versión antigua de undici; arreglarlo de raíz implica sustituir
+      # minecraft-launcher-core o forzar un downgrade con breaking changes
+      # de @xmcl/installer. Se deja aquí igualmente para que aparezca en los
+      # logs de cada build y no se nos olvide, sin tumbar la CI mientras
+      # tanto.
+      - run: npm audit --audit-level=high
+        continue-on-error: true
 
   pack:
     # electron-builder firma el .exe con signtool.exe, así que la validación

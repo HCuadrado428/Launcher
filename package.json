@@ -9,7 +9,8 @@
     "dist": "electron-builder --win",
     "pack": "electron-builder --dir",
     "release": "electron-builder --win --publish always",
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@xmcl/core": "^2.15.1",
@@ -24,8 +25,10 @@
     "electron-winstaller@5.4.0": true
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "electron": "^43.1.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.7.0"
   },
   "build": {
     "appId": "com.hcuadrado428.milauncher",

@@ -10,7 +10,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
         return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
         if (err.name === 'AbortError') {
-            throw new Error('El servidor ha tardado demasiado en responder (puede estar arrancando tras estar inactivo). Inténtalo de nuevo en unos segundos.');
+            throw new Error('El servidor ha tardado demasiado en responder (puede estar arrancando tras estar inactivo). Inténtalo de nuevo en unos segundos.', { cause: err });
         }
         throw err;
     } finally {

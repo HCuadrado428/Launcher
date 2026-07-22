@@ -64,26 +64,40 @@ themeSwitcher.addEventListener('click', (e) => {
 // --- Login ---
 
 offlineLoginBtn.addEventListener('click', async () => {
-    const username = offlineUsername.value.trim() || 'Jugador';
-    const account = await window.electronAPI.loginOffline(username);
-    renderAccount(account);
-    updateActiveModpackLabel(null);
-    showScreen('mainScreen');
+    offlineLoginBtn.disabled = true;
+    try {
+        const username = offlineUsername.value.trim() || 'Jugador';
+        const account = await window.electronAPI.loginOffline(username);
+        renderAccount(account);
+        updateActiveModpackLabel(null);
+        showScreen('mainScreen');
+    } catch (err) {
+        showToast(err.message || t('toast.msLoginFailed'), 'error');
+    } finally {
+        offlineLoginBtn.disabled = false;
+    }
 });
 
 msLoginBtn.addEventListener('click', async () => {
     msLoginBtn.disabled = true;
     msLoginBtn.innerText = t('login.ms.opening');
-    const result = await window.electronAPI.loginMicrosoft();
-    msLoginBtn.disabled = false;
-    msLoginBtn.innerText = t('login.ms.button');
-
-    if (result && result.success) {
-        renderAccount(result.account);
-        showScreen('mainScreen');
-        showToast(t('toast.loggedIn', { name: result.account.username }), 'info');
-    } else {
-        showToast((result && result.message) || t('toast.msLoginFailed'), 'error');
+    try {
+        const result = await window.electronAPI.loginMicrosoft();
+        if (result && result.success) {
+            renderAccount(result.account);
+            showScreen('mainScreen');
+            showToast(t('toast.loggedIn', { name: result.account.username }), 'info');
+        } else {
+            showToast((result && result.message) || t('toast.msLoginFailed'), 'error');
+        }
+    } catch (err) {
+        // Antes no había try/catch aquí: si loginMicrosoft() rechazaba, el
+        // botón se quedaba deshabilitado con "Abriendo..." para siempre, sin
+        // ninguna forma de reintentar sin recargar toda la app.
+        showToast(err.message || t('toast.msLoginFailed'), 'error');
+    } finally {
+        msLoginBtn.disabled = false;
+        msLoginBtn.innerText = t('login.ms.button');
     }
 });
 

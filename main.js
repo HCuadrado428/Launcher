@@ -110,6 +110,9 @@ async function downloadModFile(modpackId, mod, destPath) {
     }
 
     const cfg = loadConfig();
+    if (!cfg.session || !cfg.session.token) {
+        throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
+    }
     const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/mods/${mod.id}/download`, {
         headers: { Authorization: `Bearer ${cfg.session.token}` }
     }, DOWNLOAD_TIMEOUT_MS);
@@ -966,6 +969,9 @@ ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
     if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
 
     const cfg = loadConfig();
+    if (!cfg.session || !cfg.session.token) {
+        throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
+    }
     const uploaded = [];
     for (const filePath of result.filePaths) {
         const fileBuffer = await fs.promises.readFile(filePath);
