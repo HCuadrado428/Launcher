@@ -141,6 +141,7 @@ accountsList.addEventListener('click', async (e) => {
             document.getElementById('mainScreen').dataset.modpackActive = '';
             updateActiveModpackLabel(null);
             await applyTargetSettings(null);
+            await refreshFavoriteServers();
             accountsModal.classList.remove('active');
             showScreen('mainScreen');
             showToast(t('toast.loggedIn', { name: account.username }), 'info');

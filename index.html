@@ -125,6 +125,27 @@
                 </div>
             </details>
 
+            <details class="collapsible">
+                <summary data-i18n="servers.title">🌐 Servidores favoritos</summary>
+                <div class="collapsible-body">
+                    <div id="favoriteServersList" class="favorite-servers-list"></div>
+                    <div class="favorite-server-add-row">
+                        <input type="text" id="newServerName" data-i18n-placeholder="servers.name.placeholder" placeholder="Nombre (p.ej. SMP de amigos)">
+                        <input type="text" id="newServerAddress" data-i18n-placeholder="servers.address.placeholder" placeholder="IP:puerto">
+                        <button class="secondary" id="addFavoriteServerBtn" data-i18n="servers.add">Añadir</button>
+                    </div>
+                </div>
+            </details>
+
+            <details class="collapsible">
+                <summary data-i18n="discord.title">🎮 Discord Rich Presence (opcional)</summary>
+                <div class="collapsible-body">
+                    <p data-i18n="discord.desc">Muestra en tu perfil de Discord a qué estás jugando. Hace falta crear tu propia aplicación gratuita en discord.com/developers/applications y pegar aquí su "Application ID"; Discord tiene que estar abierto en este ordenador para que funcione.</p>
+                    <input type="text" id="discordClientIdInput" data-i18n-placeholder="discord.placeholder" placeholder="Application ID de Discord">
+                    <button class="secondary" id="saveDiscordClientIdBtn" data-i18n="discord.save">Guardar</button>
+                </div>
+            </details>
+
             <div id="progressWrap">
                 <div class="progress-track">
                     <div class="progress-fill" id="progressFill"></div>
@@ -272,6 +293,8 @@
                     <button id="setCoverBtn" class="secondary" data-i18n="modal.setCover">Cambiar portada</button>
                     <button id="openInstanceFolderBtn" class="secondary" data-i18n="modal.openFolder">Abrir carpeta</button>
                     <button id="shareConfigBtn" class="secondary" style="display:none;" data-i18n="modal.shareConfig">Compartir mi config</button>
+                    <div id="configShareStatus" class="config-share-status" style="display:none;"></div>
+                    <button id="removeSharedConfigBtn" class="secondary" style="display:none;" data-i18n="modal.removeSharedConfig">Quitar config compartida</button>
                     <button id="verifyModpackBtn" class="secondary" style="display:none;" data-i18n="modal.verify">Verificar archivos</button>
                     <button id="repairModpackBtn" class="secondary" style="display:none;" data-i18n="modal.repair">Reparar instalación</button>
                     <button id="exportModpackBtn" class="secondary" style="display:none;" data-i18n="modal.export">Exportar a .zip</button>
@@ -310,7 +333,20 @@
                     <button class="secondary" id="clearLogBtn" data-i18n="console.clear">Limpiar</button>
                     <button class="secondary" id="openCrashLogsBtn" data-i18n="console.openCrashLogs">Abrir carpeta de logs</button>
                     <button class="secondary" id="openActiveInstanceFolderBtn" data-i18n="console.openInstanceFolder">Abrir carpeta de la instalación</button>
+                    <button class="secondary" id="exportSavesBtn" data-i18n="console.exportSaves">Exportar mundos guardados</button>
+                    <button class="secondary" id="openScreenshotsBtn" data-i18n="console.viewScreenshots">Ver capturas</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- MODAL DE CAPTURAS DE PANTALLA -->
+        <div id="screenshotsModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
+            <div class="modal-card card">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="screenshots.title">Capturas de pantalla</h3>
+                    <button class="switch-link" id="closeScreenshotsModalBtn" data-i18n="modal.close">Cerrar</button>
+                </div>
+                <div id="screenshotsGrid" class="screenshots-grid"></div>
             </div>
         </div>
 
@@ -364,6 +400,8 @@
     <script src="renderer/modrinthSearch.js"></script>
     <script src="renderer/localImport.js"></script>
     <script src="renderer/game.js"></script>
+    <script src="renderer/screenshots.js"></script>
+    <script src="renderer/servers.js"></script>
     <script src="renderer/init.js"></script>
 </body>
 </html>

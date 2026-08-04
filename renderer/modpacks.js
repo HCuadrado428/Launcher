@@ -57,6 +57,7 @@ useVanillaBtn.addEventListener('click', async () => {
     document.getElementById('mainScreen').dataset.modpackActive = '';
     updateActiveModpackLabel(null);
     await applyTargetSettings(null);
+    await refreshFavoriteServers();
     showToast(t('toast.vanillaSelected'), 'info');
     showScreen('mainScreen');
 });
@@ -291,6 +292,10 @@ async function selectAndSyncModpack(id, name, mcVersion, loader, loaderVersion, 
         document.getElementById('mainScreen').dataset.modpackActive = '1';
         updateActiveModpackLabel({ name, mc_version: mcVersion, loader, loader_version: resolvedLoaderVersion });
         await applyTargetSettings(id);
+        await refreshFavoriteServers();
+        if (synced && synced.config_applied) {
+            showToast(t('toast.configAppliedByOwner'), 'info');
+        }
         showToast(t('toast.modpackReady', { name }), 'info');
         showScreen('mainScreen');
     } catch (err) {

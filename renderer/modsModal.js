@@ -34,6 +34,13 @@ async function openModsModal(id, name, mcVersion, loader, isOwner = true) {
     versionHistorySection.style.display = isOwner ? '' : 'none';
     setCoverBtn.style.display = isOwner ? '' : 'none';
     shareConfigBtn.style.display = isOwner ? '' : 'none';
+    // removeSharedConfigBtn se decide en refreshConfigShareStatus() según si
+    // hay o no una config publicada; aquí solo se oculta del todo para
+    // quien no es el dueño (igual que configShareStatus).
+    if (!isOwner) {
+        configShareStatus.style.display = 'none';
+        removeSharedConfigBtn.style.display = 'none';
+    }
     deleteModpackBtn.style.display = isOwner ? '' : 'none';
     leaveModpackBtn.style.display = isOwner ? 'none' : '';
 
@@ -251,10 +258,26 @@ async function reloadModsList() {
         currentManifestMods = manifest.mods;
         currentOptionalChoices = choices || {};
         renderModsList();
+        if (currentModsModalIsOwner) refreshConfigShareStatus(manifest.config_updated_at);
     } catch (err) {
         modsList.innerHTML = '';
         showToast(err.message || t('toast.modpackManifestLoadFailed'), 'error');
     }
+}
+
+// Muestra cuándo se compartió la config por última vez (o que nunca se ha
+// compartido) y solo enseña "Quitar config compartida" si de verdad hay
+// alguna publicada; antes no había ninguna forma de saber si "Compartir mi
+// config" había hecho algo o de dejar de compartirla una vez publicada.
+function refreshConfigShareStatus(configUpdatedAt) {
+    if (configUpdatedAt) {
+        configShareStatus.textContent = t('modal.configShareStatus.shared', { date: new Date(configUpdatedAt).toLocaleString() });
+        removeSharedConfigBtn.style.display = '';
+    } else {
+        configShareStatus.textContent = t('modal.configShareStatus.never');
+        removeSharedConfigBtn.style.display = 'none';
+    }
+    configShareStatus.style.display = '';
 }
 
 function selectModsModalType(type) {
@@ -368,12 +391,30 @@ shareConfigBtn.addEventListener('click', async () => {
     if (!currentModsModalId) return;
     shareConfigBtn.disabled = true;
     try {
-        await window.electronAPI.shareModpackConfig(currentModsModalId);
+        const result = await window.electronAPI.shareModpackConfig(currentModsModalId);
         showToast(t('toast.configShared'), 'info');
+        refreshConfigShareStatus(result.config_updated_at);
     } catch (err) {
         showToast(err.message || t('toast.configShareFailed'), 'error');
     } finally {
         shareConfigBtn.disabled = false;
+    }
+});
+
+removeSharedConfigBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+    const confirmed = confirm(t('modal.removeSharedConfigConfirm'));
+    if (!confirmed) return;
+
+    removeSharedConfigBtn.disabled = true;
+    try {
+        await window.electronAPI.removeSharedConfig(currentModsModalId);
+        showToast(t('toast.configRemoved'), 'info');
+        refreshConfigShareStatus(null);
+    } catch (err) {
+        showToast(err.message || t('toast.configRemoveFailed'), 'error');
+    } finally {
+        removeSharedConfigBtn.disabled = false;
     }
 });
 

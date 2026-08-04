@@ -24,6 +24,10 @@ window.electronAPI.getConfig().then(async (cfg) => {
         curseforgeApiKeyInput.value = cfg.curseforgeApiKey;
     }
 
+    if (cfg && cfg.discordRpcClientId) {
+        discordClientIdInput.value = cfg.discordRpcClientId;
+    }
+
     if (cfg && cfg.activeModpack) {
         document.getElementById('mainScreen').dataset.modpackActive = '1';
         updateActiveModpackLabel(cfg.activeModpack);
@@ -32,4 +36,5 @@ window.electronAPI.getConfig().then(async (cfg) => {
     }
 
     await applyTargetSettings(cfg && cfg.activeModpack ? cfg.activeModpack.id : null);
+    await refreshFavoriteServers();
 });

@@ -2,7 +2,7 @@
 // con Escape ni atrapaba el foco, así que un usuario navegando solo con
 // teclado podía "salirse" del modal con Tab hacia botones de detrás que ni
 // siquiera deberían ser alcanzables mientras el modal está abierto.
-const ALL_MODALS = [updateModal, modsModal, accountsModal, consoleModal, importModal];
+const ALL_MODALS = [updateModal, modsModal, accountsModal, consoleModal, importModal, screenshotsModal];
 let lastFocusedBeforeModal = null;
 
 function getFocusableElements(container) {
@@ -26,7 +26,8 @@ const MODAL_CLOSE_BUTTONS = new Map([
     [modsModal, closeModsModalBtn],
     [accountsModal, closeAccountsModalBtn],
     [consoleModal, closeConsoleModalBtn],
-    [importModal, closeImportModalBtn]
+    [importModal, closeImportModalBtn],
+    [screenshotsModal, closeScreenshotsModalBtn]
 ]);
 
 ALL_MODALS.forEach((modal) => {

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Notification, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const yazl = require('yazl');
@@ -20,6 +21,7 @@ const { getInstalledVanillaVersions, getMinecraftVersionToLaunch, getReleaseVers
 const { getForgeVersionsForMc, getFabricVersionsForMc, installLoaderForInstance } = require('./main/loaders');
 const { searchModrinth, resolveBestModrinthVersion } = require('./main/modrinth');
 const { findCurseForgeInstances, findModrinthInstances } = require('./main/localScan');
+const discordRpc = require('./main/discordRpc');
 
 // msmc se carga de forma "segura": si el usuario todavía no ha hecho
 // `npm install`, no queremos que la app entera crashee al arrancar,
@@ -147,30 +149,51 @@ async function syncModpack(modpackId) {
 }
 
 // Si el dueño ha publicado una config compartida (botón "Compartir mi
-// config" → PUT /:id/config), se aplica UNA sola vez: la primera vez que
-// ESTE jugador sincroniza ESTE modpack en este ordenador. No se vuelve a
-// aplicar en sincronizaciones posteriores a propósito, para no pisar ajustes
-// (shaders, keybinds propios, etc.) que el jugador cambie después por su
-// cuenta. Es best-effort: si falla, no debe tirar abajo la sincronización de
+// config" → PUT /:id/config), se aplica UNA sola vez por instancia: la
+// primera vez que se resuelve, se escribe este marcador y nunca se vuelve a
+// tocar, para no pisar ajustes (shaders, keybinds propios, etc.) que el
+// jugador cambie después por su cuenta. A propósito NO es .launcher-meta.json
+// (que "Reparar instalación" sí borra): si lo fuera, cada reparación
+// reaplicaría la config del dueño encima de la del jugador.
+function sharedConfigMarkerPath(modpackId) {
+    return path.join(instanceDir(modpackId), '.shared-config-applied');
+}
+
+// Es best-effort: si falla, no debe tirar abajo la sincronización de
 // mods/loader, que es lo importante de verdad.
-async function applySharedConfigOnFirstSync(modpackId) {
-    try {
-        const cfg = loadConfig();
-        if (!cfg.session || !cfg.session.token) return;
-        const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/config`, {
-            headers: { Authorization: `Bearer ${cfg.session.token}` }
-        });
-        if (res.status === 404) return; // el dueño no ha compartido ninguna config
-        if (!res.ok) throw new Error(`El servidor respondió con estado ${res.status}.`);
-        const buffer = Buffer.from(await res.arrayBuffer());
-        new AdmZip(buffer).extractAllTo(instanceDir(modpackId), true);
-    } catch (err) {
-        console.warn('[WARN] No se pudo aplicar la configuración compartida del modpack:', err.message);
+async function applySharedConfigIfNeeded(modpackId, manifestConfigUpdatedAt) {
+    const markerPath = sharedConfigMarkerPath(modpackId);
+    if (fs.existsSync(markerPath)) return false;
+
+    let applied = false;
+    if (manifestConfigUpdatedAt) {
+        try {
+            const cfg = loadConfig();
+            if (cfg.session && cfg.session.token) {
+                const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/config`, {
+                    headers: { Authorization: `Bearer ${cfg.session.token}` }
+                });
+                if (res.ok) {
+                    const buffer = Buffer.from(await res.arrayBuffer());
+                    new AdmZip(buffer).extractAllTo(instanceDir(modpackId), true);
+                    applied = true;
+                } else if (res.status !== 404) {
+                    throw new Error(`El servidor respondió con estado ${res.status}.`);
+                }
+            }
+        } catch (err) {
+            console.warn('[WARN] No se pudo aplicar la configuración compartida del modpack:', err.message);
+        }
     }
+
+    try {
+        fs.mkdirSync(instanceDir(modpackId), { recursive: true });
+        fs.writeFileSync(markerPath, String(Date.now()));
+    } catch (err) { /* no crítico: en el peor caso se reintenta en el siguiente sync */ }
+    return applied;
 }
 
 async function syncModpackImpl(modpackId) {
-    const isFirstSync = !fs.existsSync(instanceMetaPath(modpackId));
     const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
     const localMeta = loadInstanceMeta(modpackId);
     fs.mkdirSync(instanceModsDir(modpackId), { recursive: true });
@@ -276,9 +299,7 @@ async function syncModpackImpl(modpackId) {
         loaderVersionId = null;
     }
 
-    if (isFirstSync && manifest.config_updated_at) {
-        await applySharedConfigOnFirstSync(modpackId);
-    }
+    const configApplied = await applySharedConfigIfNeeded(modpackId, manifest.config_updated_at);
 
     saveInstanceMeta(modpackId, {
         version_hash: manifest.version_hash,
@@ -295,7 +316,8 @@ async function syncModpackImpl(modpackId) {
         loader,
         loader_version: requestedLoaderVersion,
         version_hash: manifest.version_hash,
-        loader_version_id: loaderVersionId
+        loader_version_id: loaderVersionId,
+        config_applied: configApplied
     };
 }
 
@@ -606,6 +628,7 @@ if (!gotLock) {
 
     app.on('before-quit', () => {
         isQuitting = true;
+        discordRpc.destroy();
     });
 
     app.on('window-all-closed', () => {
@@ -634,6 +657,7 @@ launcher.on('download-status', (e) => {
 launcher.on('close', (code) => {
     console.log(`[CLOSE] El juego se cerró con código ${code}`);
     gameProcess = null;
+    discordRpc.clearPresence();
 
     if (playSessionStart) {
         const minutesPlayed = (Date.now() - playSessionStart) / 60000;
@@ -921,6 +945,13 @@ ipcMain.handle('get-playtime', (event, { modpackId }) => {
 // del backend propio. De momento solo guardamos la key para cuando llegue
 // ese momento.
 ipcMain.handle('set-curseforge-api-key', (event, apiKey) => saveConfig({ curseforgeApiKey: apiKey || '' }));
+
+ipcMain.handle('set-discord-client-id', (event, clientId) => {
+    const trimmed = (clientId || '').trim();
+    saveConfig({ discordRpcClientId: trimmed });
+    if (!trimmed) discordRpc.destroy();
+    return true;
+});
 
 // ============================================================================
 // IPC: LISTAS DE VERSIONES DE LOADER (para el selector al crear un modpack)
@@ -1301,6 +1332,71 @@ ipcMain.handle('modpacks-share-config', async (event, { id }) => {
     }
 });
 
+ipcMain.handle('modpacks-remove-config', async (event, { id }) => {
+    return apiRequest(`/api/modpacks/${id}/config`, { method: 'DELETE' });
+});
+
+// --- Servidores favoritos (solo locales, no pasan por el backend) ---
+ipcMain.handle('get-favorite-servers', (event, { id } = {}) => {
+    const cfg = loadConfig();
+    const key = id || 'vanilla';
+    return (cfg.favoriteServers && cfg.favoriteServers[key]) || [];
+});
+
+ipcMain.handle('add-favorite-server', (event, { id, name, address } = {}) => {
+    const trimmedName = (name || '').trim();
+    const trimmedAddress = (address || '').trim();
+    if (!trimmedName || !trimmedAddress) {
+        throw new Error('Faltan el nombre o la dirección del servidor.');
+    }
+    const cfg = loadConfig();
+    const key = id || 'vanilla';
+    const favoriteServers = { ...(cfg.favoriteServers || {}) };
+    favoriteServers[key] = [...(favoriteServers[key] || []), { id: crypto.randomUUID(), name: trimmedName, address: trimmedAddress }];
+    saveConfig({ favoriteServers });
+    return favoriteServers[key];
+});
+
+ipcMain.handle('remove-favorite-server', (event, { id, serverId } = {}) => {
+    const cfg = loadConfig();
+    const key = id || 'vanilla';
+    const favoriteServers = { ...(cfg.favoriteServers || {}) };
+    favoriteServers[key] = (favoriteServers[key] || []).filter((s) => s.id !== serverId);
+    saveConfig({ favoriteServers });
+    return favoriteServers[key];
+});
+
+// Exporta los mundos guardados (saves/) de la instalación activa (vanilla o
+// un modpack) a un .zip local. Aparte de mods/exportModpack: los mundos son
+// del jugador, no del modpack en sí, así que no tiene sentido que dependan
+// de ser el dueño ni de ningún estado "sincronizado".
+ipcMain.handle('export-saves', async (event, { id, name }) => {
+    const dir = id ? instanceDir(id) : VANILLA_ROOT;
+    const savesDir = path.join(dir, 'saves');
+    if (!fs.existsSync(savesDir) || fs.readdirSync(savesDir).length === 0) {
+        throw new Error('No hay ningún mundo guardado todavía en esta instalación.');
+    }
+
+    const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Exportar mundos guardados',
+        defaultPath: `${(name || 'vanilla').replace(/[\\/:*?"<>|]/g, '_')}-mundos.zip`,
+        filters: [{ name: 'Archivo zip', extensions: ['zip'] }]
+    });
+    if (result.canceled || !result.filePath) return { cancelled: true };
+
+    const zipfile = new yazl.ZipFile();
+    const fileCount = addDirToZip(zipfile, savesDir, 'saves');
+
+    await new Promise((resolve, reject) => {
+        zipfile.outputStream.pipe(fs.createWriteStream(result.filePath))
+            .on('close', resolve)
+            .on('error', reject);
+        zipfile.end();
+    });
+
+    return { cancelled: false, filePath: result.filePath, fileCount };
+});
+
 const COVER_MIME_BY_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
 const COVER_MAX_BYTES = 250 * 1024;
 
@@ -1452,6 +1548,15 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
         mainWindow.webContents.send('game-status', { type: 'launched' });
         playSessionStart = Date.now();
         playSessionTargetKey = targetKey;
+        if (cfg.discordRpcClientId) {
+            discordRpc.setPresence(cfg.discordRpcClientId, {
+                details: activeModpack ? `Jugando a ${activeModpack.name}` : 'Jugando a Minecraft vanilla',
+                state: `Minecraft ${versionNumber}`,
+                startTimestamp: playSessionStart,
+                largeImageKey: 'ember-icon',
+                instance: false
+            });
+        }
     } catch (err) {
         console.error('[ERROR] Fallo al lanzar el juego:', err);
         gameProcess = null;
@@ -1475,6 +1580,57 @@ ipcMain.handle('open-instance-folder', (event, { id } = {}) => {
     const dir = id ? instanceDir(id) : VANILLA_ROOT;
     fs.mkdirSync(dir, { recursive: true });
     shell.openPath(dir);
+});
+
+// --- Galería de capturas de pantalla ---
+// screenshots/ lo escribe el propio juego (tecla F2), el launcher solo lo
+// lee/lista. filename siempre viene de un listado nuestro (nunca de fuera de
+// la app), pero se valida igualmente por si acaso antes de tocar el disco.
+function isSafeScreenshotFilename(filename) {
+    return typeof filename === 'string' && filename.length > 0 && !filename.includes('..') && !/[\\/]/.test(filename);
+}
+const SCREENSHOT_THUMBNAIL_WIDTH = 320;
+const MAX_SCREENSHOTS_LISTED = 120;
+
+ipcMain.handle('list-screenshots', (event, { id } = {}) => {
+    const dir = path.join(id ? instanceDir(id) : VANILLA_ROOT, 'screenshots');
+    if (!fs.existsSync(dir)) return [];
+
+    const files = fs.readdirSync(dir)
+        .filter((f) => /\.(png|jpg|jpeg)$/i.test(f))
+        .map((f) => {
+            const stat = fs.statSync(path.join(dir, f));
+            return { filename: f, mtimeMs: stat.mtimeMs };
+        })
+        .sort((a, b) => b.mtimeMs - a.mtimeMs)
+        .slice(0, MAX_SCREENSHOTS_LISTED);
+
+    // nativeImage.resize() genera una miniatura ligera (unas pocas decenas
+    // de KB) en vez de mandar el PNG original entero (varios MB cada uno)
+    // por IPC; con muchas capturas eso sería lentísimo y se comería memoria
+    // de sobra.
+    return files.map(({ filename, mtimeMs }) => {
+        let thumbnail = null;
+        try {
+            thumbnail = nativeImage.createFromPath(path.join(dir, filename))
+                .resize({ width: SCREENSHOT_THUMBNAIL_WIDTH })
+                .toDataURL();
+        } catch (err) { /* archivo corrupto o formato no soportado: se omite la miniatura */ }
+        return { filename, mtimeMs, thumbnail };
+    });
+});
+
+ipcMain.handle('open-screenshot', (event, { id, filename } = {}) => {
+    if (!isSafeScreenshotFilename(filename)) throw new Error('Nombre de archivo inválido.');
+    const dir = path.join(id ? instanceDir(id) : VANILLA_ROOT, 'screenshots');
+    shell.openPath(path.join(dir, filename));
+});
+
+ipcMain.handle('delete-screenshot', (event, { id, filename } = {}) => {
+    if (!isSafeScreenshotFilename(filename)) throw new Error('Nombre de archivo inválido.');
+    const dir = path.join(id ? instanceDir(id) : VANILLA_ROOT, 'screenshots');
+    fs.unlinkSync(path.join(dir, filename));
+    return { ok: true };
 });
 
 ipcMain.on('stop-game', () => {

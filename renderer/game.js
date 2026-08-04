@@ -135,3 +135,20 @@ openActiveInstanceFolderBtn.addEventListener('click', async () => {
     const cfg = await window.electronAPI.getConfig();
     window.electronAPI.openInstanceFolder(cfg && cfg.activeModpack ? cfg.activeModpack.id : null);
 });
+
+exportSavesBtn.addEventListener('click', async () => {
+    exportSavesBtn.disabled = true;
+    try {
+        const cfg = await window.electronAPI.getConfig();
+        const id = cfg && cfg.activeModpack ? cfg.activeModpack.id : null;
+        const name = cfg && cfg.activeModpack ? cfg.activeModpack.name : 'vanilla';
+        const result = await window.electronAPI.exportSaves(id, name);
+        if (!result.cancelled) {
+            showToast(t('toast.savesExported', { count: result.fileCount }), 'info');
+        }
+    } catch (err) {
+        showToast(err.message || t('toast.savesExportFailed'), 'error');
+    } finally {
+        exportSavesBtn.disabled = false;
+    }
+});

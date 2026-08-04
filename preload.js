@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // CurseForge (preparado, todavía no activo)
     setCurseForgeApiKey: (apiKey) => ipcRenderer.invoke('set-curseforge-api-key', apiKey),
+    setDiscordClientId: (clientId) => ipcRenderer.invoke('set-discord-client-id', clientId),
 
     // Actualizaciones
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),
@@ -57,6 +58,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGameLog: (callback) => ipcRenderer.on('game-log', (_event, line) => callback(line)),
     openCrashLogsFolder: () => ipcRenderer.invoke('open-crash-logs-folder'),
     openInstanceFolder: (id) => ipcRenderer.invoke('open-instance-folder', { id }),
+    exportSaves: (id, name) => ipcRenderer.invoke('export-saves', { id, name }),
+    listScreenshots: (id) => ipcRenderer.invoke('list-screenshots', { id }),
+    openScreenshot: (id, filename) => ipcRenderer.invoke('open-screenshot', { id, filename }),
+    deleteScreenshot: (id, filename) => ipcRenderer.invoke('delete-screenshot', { id, filename }),
 
     // Modpacks
     createModpack: (name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-create', { name, mcVersion, loader, loaderVersion }),
@@ -78,6 +83,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exportModpack: (id, name) => ipcRenderer.invoke('modpacks-export', { id, name }),
     setModpackCover: (id) => ipcRenderer.invoke('modpacks-set-cover', { id }),
     shareModpackConfig: (id) => ipcRenderer.invoke('modpacks-share-config', { id }),
+    removeSharedConfig: (id) => ipcRenderer.invoke('modpacks-remove-config', { id }),
+    getFavoriteServers: (id) => ipcRenderer.invoke('get-favorite-servers', { id }),
+    addFavoriteServer: (id, name, address) => ipcRenderer.invoke('add-favorite-server', { id, name, address }),
+    removeFavoriteServer: (id, serverId) => ipcRenderer.invoke('remove-favorite-server', { id, serverId }),
     selectActiveModpack: (id, name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion, loader, loaderVersion }),
     onInviteReceived: (callback) => ipcRenderer.on('invite-received', (_event, data) => callback(data)),
     // Se registra un listener nuevo cada vez que se llama, así que a
