@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const yazl = require('yazl');
+const AdmZip = require('adm-zip');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const launcher = new Client();
 
@@ -145,7 +146,31 @@ async function syncModpack(modpackId) {
     }
 }
 
+// Si el dueño ha publicado una config compartida (botón "Compartir mi
+// config" → PUT /:id/config), se aplica UNA sola vez: la primera vez que
+// ESTE jugador sincroniza ESTE modpack en este ordenador. No se vuelve a
+// aplicar en sincronizaciones posteriores a propósito, para no pisar ajustes
+// (shaders, keybinds propios, etc.) que el jugador cambie después por su
+// cuenta. Es best-effort: si falla, no debe tirar abajo la sincronización de
+// mods/loader, que es lo importante de verdad.
+async function applySharedConfigOnFirstSync(modpackId) {
+    try {
+        const cfg = loadConfig();
+        if (!cfg.session || !cfg.session.token) return;
+        const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/config`, {
+            headers: { Authorization: `Bearer ${cfg.session.token}` }
+        });
+        if (res.status === 404) return; // el dueño no ha compartido ninguna config
+        if (!res.ok) throw new Error(`El servidor respondió con estado ${res.status}.`);
+        const buffer = Buffer.from(await res.arrayBuffer());
+        new AdmZip(buffer).extractAllTo(instanceDir(modpackId), true);
+    } catch (err) {
+        console.warn('[WARN] No se pudo aplicar la configuración compartida del modpack:', err.message);
+    }
+}
+
 async function syncModpackImpl(modpackId) {
+    const isFirstSync = !fs.existsSync(instanceMetaPath(modpackId));
     const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
     const localMeta = loadInstanceMeta(modpackId);
     fs.mkdirSync(instanceModsDir(modpackId), { recursive: true });
@@ -249,6 +274,10 @@ async function syncModpackImpl(modpackId) {
         if (mainWindow) mainWindow.webContents.send('modpack-sync-progress', { label: `${loader} instalado`, percent: 100, modpackId });
     } else if (loader === 'vanilla') {
         loaderVersionId = null;
+    }
+
+    if (isFirstSync && manifest.config_updated_at) {
+        await applySharedConfigOnFirstSync(modpackId);
     }
 
     saveInstanceMeta(modpackId, {
@@ -1221,6 +1250,57 @@ ipcMain.handle('modpacks-export', async (event, { id, name }) => {
     return { cancelled: false, filePath: result.filePath, fileCount };
 });
 
+// "Compartir mi config": empaqueta la config/ + options.txt LOCALES del
+// dueño (ajustes de cada mod, gráficos, teclas...) en un .zip y lo sube al
+// backend. Solo se aplica en el ordenador de los demás jugadores la primera
+// vez que sincronizan este modpack (ver el bloque de "primera sincronización"
+// en syncModpackImpl): a propósito no se vuelve a tocar después, para no
+// pisar cambios que cada jugador haga por su cuenta más adelante.
+ipcMain.handle('modpacks-share-config', async (event, { id }) => {
+    const dir = instanceDir(id);
+    const configDir = path.join(dir, 'config');
+    const optionsPath = path.join(dir, 'options.txt');
+    const hasConfig = fs.existsSync(configDir);
+    const hasOptions = fs.existsSync(optionsPath);
+    if (!hasConfig && !hasOptions) {
+        throw new Error('Todavía no tienes ninguna configuración local para este modpack. Juega al menos una vez para generarla.');
+    }
+
+    const cfg = loadConfig();
+    if (!cfg.session || !cfg.session.token) {
+        throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
+    }
+
+    const zipfile = new yazl.ZipFile();
+    if (hasConfig) addDirToZip(zipfile, configDir, 'config');
+    if (hasOptions) zipfile.addFile(optionsPath, 'options.txt');
+
+    const tmpZipPath = path.join(os.tmpdir(), `ember-launcher-shared-config-${id}-${Date.now()}.zip`);
+    await new Promise((resolve, reject) => {
+        zipfile.outputStream.pipe(fs.createWriteStream(tmpZipPath))
+            .on('close', resolve)
+            .on('error', reject);
+        zipfile.end();
+    });
+
+    try {
+        const fileBuffer = await fs.promises.readFile(tmpZipPath);
+        const form = new FormData();
+        form.append('config', new Blob([fileBuffer]), 'config.zip');
+
+        const res = await fetch(`${getBackendUrl()}/api/modpacks/${id}/config`, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${cfg.session.token}` },
+            body: form
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'No se pudo subir la configuración.');
+        return data;
+    } finally {
+        fs.unlink(tmpZipPath, () => {});
+    }
+});
+
 const COVER_MIME_BY_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
 const COVER_MAX_BYTES = 250 * 1024;
 
@@ -1385,6 +1465,16 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
 ipcMain.handle('open-crash-logs-folder', () => {
     fs.mkdirSync(CRASH_LOGS_DIR, { recursive: true });
     shell.openPath(CRASH_LOGS_DIR);
+});
+
+// Abre en el explorador de archivos la carpeta de la instancia (mods,
+// resourcepacks, config, saves, screenshots... todo lo que usa esa
+// instalación). Sin "id" abre la raíz vanilla (VANILLA_ROOT), que es la que
+// se usa cuando no hay ningún modpack activo.
+ipcMain.handle('open-instance-folder', (event, { id } = {}) => {
+    const dir = id ? instanceDir(id) : VANILLA_ROOT;
+    fs.mkdirSync(dir, { recursive: true });
+    shell.openPath(dir);
 });
 
 ipcMain.on('stop-game', () => {

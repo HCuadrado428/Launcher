@@ -33,6 +33,7 @@ async function openModsModal(id, name, mcVersion, loader, isOwner = true) {
     accessManagementSection.style.display = isOwner ? '' : 'none';
     versionHistorySection.style.display = isOwner ? '' : 'none';
     setCoverBtn.style.display = isOwner ? '' : 'none';
+    shareConfigBtn.style.display = isOwner ? '' : 'none';
     deleteModpackBtn.style.display = isOwner ? '' : 'none';
     leaveModpackBtn.style.display = isOwner ? 'none' : '';
 
@@ -355,6 +356,24 @@ setCoverBtn.addEventListener('click', async () => {
         showToast(err.message || t('toast.coverUpdateFailed'), 'error');
     } finally {
         setCoverBtn.disabled = false;
+    }
+});
+
+openInstanceFolderBtn.addEventListener('click', () => {
+    if (!currentModsModalId) return;
+    window.electronAPI.openInstanceFolder(currentModsModalId);
+});
+
+shareConfigBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+    shareConfigBtn.disabled = true;
+    try {
+        await window.electronAPI.shareModpackConfig(currentModsModalId);
+        showToast(t('toast.configShared'), 'info');
+    } catch (err) {
+        showToast(err.message || t('toast.configShareFailed'), 'error');
+    } finally {
+        shareConfigBtn.disabled = false;
     }
 });
 

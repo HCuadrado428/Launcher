@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onGameProgress: (callback) => ipcRenderer.on('game-progress', (_event, data) => callback(data)),
     onGameLog: (callback) => ipcRenderer.on('game-log', (_event, line) => callback(line)),
     openCrashLogsFolder: () => ipcRenderer.invoke('open-crash-logs-folder'),
+    openInstanceFolder: (id) => ipcRenderer.invoke('open-instance-folder', { id }),
 
     // Modpacks
     createModpack: (name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-create', { name, mcVersion, loader, loaderVersion }),
@@ -76,6 +77,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     verifyModpackFiles: (id) => ipcRenderer.invoke('modpacks-verify-files', { id }),
     exportModpack: (id, name) => ipcRenderer.invoke('modpacks-export', { id, name }),
     setModpackCover: (id) => ipcRenderer.invoke('modpacks-set-cover', { id }),
+    shareModpackConfig: (id) => ipcRenderer.invoke('modpacks-share-config', { id }),
     selectActiveModpack: (id, name, mcVersion, loader, loaderVersion) => ipcRenderer.invoke('modpacks-select', { id, name, mcVersion, loader, loaderVersion }),
     onInviteReceived: (callback) => ipcRenderer.on('invite-received', (_event, data) => callback(data)),
     // Se registra un listener nuevo cada vez que se llama, así que a

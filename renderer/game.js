@@ -130,3 +130,8 @@ clearLogBtn.addEventListener('click', () => {
 openCrashLogsBtn.addEventListener('click', () => {
     window.electronAPI.openCrashLogsFolder();
 });
+
+openActiveInstanceFolderBtn.addEventListener('click', async () => {
+    const cfg = await window.electronAPI.getConfig();
+    window.electronAPI.openInstanceFolder(cfg && cfg.activeModpack ? cfg.activeModpack.id : null);
+});
