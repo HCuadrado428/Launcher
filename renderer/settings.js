@@ -92,10 +92,3 @@ ramSlider.addEventListener('input', () => {
     ramValue.innerText = ramSlider.value + ' GB';
     updateRamHint();
 });
-
-// --- Discord Rich Presence ---
-
-saveDiscordClientIdBtn.addEventListener('click', async () => {
-    await window.electronAPI.setDiscordClientId(discordClientIdInput.value.trim());
-    showToast(t('discord.saved'), 'info');
-});

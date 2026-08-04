@@ -41,7 +41,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // CurseForge (preparado, todavía no activo)
     setCurseForgeApiKey: (apiKey) => ipcRenderer.invoke('set-curseforge-api-key', apiKey),
-    setDiscordClientId: (clientId) => ipcRenderer.invoke('set-discord-client-id', clientId),
 
     // Actualizaciones
     onUpdateStatus: (callback) => ipcRenderer.on('update-status', (_event, data) => callback(data)),

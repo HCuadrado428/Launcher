@@ -21,7 +21,6 @@ const { getInstalledVanillaVersions, getMinecraftVersionToLaunch, getReleaseVers
 const { getForgeVersionsForMc, getFabricVersionsForMc, installLoaderForInstance } = require('./main/loaders');
 const { searchModrinth, resolveBestModrinthVersion } = require('./main/modrinth');
 const { findCurseForgeInstances, findModrinthInstances } = require('./main/localScan');
-const discordRpc = require('./main/discordRpc');
 
 // msmc se carga de forma "segura": si el usuario todavía no ha hecho
 // `npm install`, no queremos que la app entera crashee al arrancar,
@@ -628,7 +627,6 @@ if (!gotLock) {
 
     app.on('before-quit', () => {
         isQuitting = true;
-        discordRpc.destroy();
     });
 
     app.on('window-all-closed', () => {
@@ -657,7 +655,6 @@ launcher.on('download-status', (e) => {
 launcher.on('close', (code) => {
     console.log(`[CLOSE] El juego se cerró con código ${code}`);
     gameProcess = null;
-    discordRpc.clearPresence();
 
     if (playSessionStart) {
         const minutesPlayed = (Date.now() - playSessionStart) / 60000;
@@ -945,13 +942,6 @@ ipcMain.handle('get-playtime', (event, { modpackId }) => {
 // del backend propio. De momento solo guardamos la key para cuando llegue
 // ese momento.
 ipcMain.handle('set-curseforge-api-key', (event, apiKey) => saveConfig({ curseforgeApiKey: apiKey || '' }));
-
-ipcMain.handle('set-discord-client-id', (event, clientId) => {
-    const trimmed = (clientId || '').trim();
-    saveConfig({ discordRpcClientId: trimmed });
-    if (!trimmed) discordRpc.destroy();
-    return true;
-});
 
 // ============================================================================
 // IPC: LISTAS DE VERSIONES DE LOADER (para el selector al crear un modpack)
@@ -1548,15 +1538,6 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
         mainWindow.webContents.send('game-status', { type: 'launched' });
         playSessionStart = Date.now();
         playSessionTargetKey = targetKey;
-        if (cfg.discordRpcClientId) {
-            discordRpc.setPresence(cfg.discordRpcClientId, {
-                details: activeModpack ? `Jugando a ${activeModpack.name}` : 'Jugando a Minecraft vanilla',
-                state: `Minecraft ${versionNumber}`,
-                startTimestamp: playSessionStart,
-                largeImageKey: 'ember-icon',
-                instance: false
-            });
-        }
     } catch (err) {
         console.error('[ERROR] Fallo al lanzar el juego:', err);
         gameProcess = null;
