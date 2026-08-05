@@ -71,6 +71,7 @@ offlineLoginBtn.addEventListener('click', async () => {
         renderAccount(account);
         updateActiveModpackLabel(null);
         showScreen('mainScreen');
+        refreshDashboard();
     } catch (err) {
         showToast(err.message || t('toast.msLoginFailed'), 'error');
     } finally {
@@ -86,6 +87,7 @@ msLoginBtn.addEventListener('click', async () => {
         if (result && result.success) {
             renderAccount(result.account);
             showScreen('mainScreen');
+            refreshDashboard();
             showToast(t('toast.loggedIn', { name: result.account.username }), 'info');
         } else {
             showToast((result && result.message) || t('toast.msLoginFailed'), 'error');
@@ -144,6 +146,7 @@ accountsList.addEventListener('click', async (e) => {
             await refreshFavoriteServers();
             accountsModal.classList.remove('active');
             showScreen('mainScreen');
+            refreshDashboard();
             showToast(t('toast.loggedIn', { name: account.username }), 'info');
         } catch (err) {
             showToast(err.message || t('accounts.switchFailed'), 'error');

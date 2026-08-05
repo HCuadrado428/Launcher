@@ -16,6 +16,7 @@ window.electronAPI.getConfig().then(async (cfg) => {
     if (cfg && cfg.account) {
         renderAccount(cfg.account);
         showScreen('mainScreen');
+        refreshDashboard();
     } else {
         showScreen('loginScreen');
     }

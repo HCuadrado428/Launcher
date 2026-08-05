@@ -80,150 +80,162 @@
             </div>
         </div>
 
-        <!-- PANTALLA PRINCIPAL -->
-        <div id="mainScreen" class="screen card">
-            <div class="field">
-                <label for="javaPath" data-i18n="main.java.label">Ruta de Java (java.exe)</label>
-                <div class="java-row">
-                    <input type="text" id="javaPath" data-i18n-placeholder="main.java.placeholder" placeholder="Se detecta automáticamente si lo dejas vacío">
-                    <button class="secondary" id="detectBtn" data-i18n="main.java.detect">Detectar</button>
-                    <button class="secondary" id="browseBtn" data-i18n="main.java.browse">Buscar...</button>
-                </div>
-                <div id="javaHint"></div>
-            </div>
-
-            <div class="field">
-                <label for="ramSlider" data-i18n="main.ram.label">Memoria RAM asignada</label>
-                <div class="ram-row">
-                    <input type="range" id="ramSlider" min="1" max="16" step="1" value="4">
-                    <span class="ram-value" id="ramValue">4 GB</span>
-                </div>
-                <div id="ramHint"></div>
-            </div>
-
-            <div class="field modpack-field">
-                <label data-i18n="main.install.label">Instalación a jugar</label>
-                <div class="active-modpack-row">
-                    <div>
-                        <div id="activeModpackLabel" style="font-size: 13px; color: var(--text-dim);">Vanilla · consultando última versión...</div>
-                        <div id="playtimeLabel" class="playtime-label"></div>
+        <!-- PANEL PRINCIPAL: dos columnas lado a lado (no dos pantallas
+             distintas entre las que navegar) — a la izquierda los ajustes de
+             juego, a la derecha los modpacks siempre visibles. En ventanas
+             estrechas .dashboard-grid las apila en vez de forzarlas. -->
+        <div id="mainScreen" class="screen dashboard-grid">
+            <div class="card dashboard-col-play">
+                <div class="field">
+                    <label for="javaPath" data-i18n="main.java.label">Ruta de Java (java.exe)</label>
+                    <div class="java-row">
+                        <input type="text" id="javaPath" data-i18n-placeholder="main.java.placeholder" placeholder="Se detecta automáticamente si lo dejas vacío">
+                        <button class="secondary" id="detectBtn" data-i18n="main.java.detect">Detectar</button>
+                        <button class="secondary" id="browseBtn" data-i18n="main.java.browse">Buscar...</button>
                     </div>
-                    <button class="secondary" id="openModpacksBtn" data-i18n="main.install.myModpacks">Mis modpacks</button>
+                    <div id="javaHint"></div>
                 </div>
-            </div>
 
-            <div class="play-row">
-                <button id="playBtn" data-i18n="main.play">Iniciar Juego</button>
-                <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;" data-i18n="main.stop">Detener</button>
-            </div>
-
-            <div class="console-link-row">
-                <button class="switch-link" id="openConsoleBtn" data-i18n="main.openConsole">Ver consola del juego</button>
-            </div>
-
-            <details class="collapsible">
-                <summary data-i18n="java.advanced.title">⚙️ Configuración avanzada de Java</summary>
-                <div class="collapsible-body">
-                    <p data-i18n="java.advanced.desc">Flags de JVM extra para lanzar el juego (por ejemplo, flags de G1GC para mejorar el rendimiento). Déjalo vacío si no sabes qué es esto.</p>
-                    <textarea id="customJvmArgsInput" class="jvm-args-textarea" data-i18n-placeholder="java.advanced.placeholder" placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled ..."></textarea>
-                </div>
-            </details>
-
-            <details class="collapsible">
-                <summary data-i18n="servers.title">🌐 Servidores favoritos</summary>
-                <div class="collapsible-body">
-                    <div id="favoriteServersList" class="favorite-servers-list"></div>
-                    <div class="favorite-server-add-row">
-                        <input type="text" id="newServerName" data-i18n-placeholder="servers.name.placeholder" placeholder="Nombre (p.ej. SMP de amigos)">
-                        <input type="text" id="newServerAddress" data-i18n-placeholder="servers.address.placeholder" placeholder="IP:puerto">
-                        <button class="secondary" id="addFavoriteServerBtn" data-i18n="servers.add">Añadir</button>
+                <div class="field">
+                    <label for="ramSlider" data-i18n="main.ram.label">Memoria RAM asignada</label>
+                    <div class="ram-row">
+                        <input type="range" id="ramSlider" min="1" max="16" step="1" value="4">
+                        <span class="ram-value" id="ramValue">4 GB</span>
                     </div>
+                    <div id="ramHint"></div>
                 </div>
-            </details>
 
-            <div id="progressWrap">
-                <div class="progress-track">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                <div id="progressLabel" data-i18n="main.progress.preparing">Preparando...</div>
-            </div>
-        </div>
-
-        <!-- PANTALLA DE MODPACKS -->
-        <div id="modpacksScreen" class="screen card card-wide">
-            <div class="modpacks-header">
-                <button class="switch-link back-link" id="backToMainBtn">&larr; <span data-i18n="modpacks.back">Volver</span></button>
-                <h3 style="margin: 0;" data-i18n="modpacks.title">Modpacks</h3>
-                <span class="backend-status" id="backendStatusDot" title="">
-                    <span class="status-dot"></span>
-                    <span id="backendStatusText" data-i18n="backend.status.checking">Comprobando servidor...</span>
-                </span>
-            </div>
-
-            <input type="text" id="modpackSearchInput" class="modpack-search" data-i18n-placeholder="modpacks.search.placeholder" placeholder="Buscar modpack por nombre...">
-
-            <details class="collapsible">
-                <summary data-i18n="modpacks.invite.title">🔗 Unirme con un link de invitación</summary>
-                <div class="collapsible-body">
-                    <p data-i18n="modpacks.invite.desc">Pega aquí el link <code>milauncher://invite/...</code> que te hayan compartido.</p>
-                    <input type="text" id="inviteLinkInput" data-i18n-placeholder="modpacks.invite.placeholder" placeholder="milauncher://invite/xxxxxxxx">
-                    <button id="redeemInviteBtn" data-i18n="modpacks.invite.button">Canjear invitación</button>
-                </div>
-            </details>
-
-            <details class="collapsible" open>
-                <summary data-i18n="modpacks.create.title">➕ Crear un modpack nuevo</summary>
-                <div class="collapsible-body">
-                    <p data-i18n="modpacks.create.desc">Solo disponible con cuenta Microsoft. Puedes elegir cualquier versión de Minecraft y el loader (Forge/Fabric).</p>
-                    <input type="text" id="newModpackName" data-i18n-placeholder="modpacks.create.name.placeholder" placeholder="Nombre del modpack">
-                    <div class="create-modpack-grid">
+                <div class="field modpack-field">
+                    <label data-i18n="main.install.label">Instalación a jugar</label>
+                    <div class="active-modpack-row">
                         <div>
-                            <label for="newModpackVersion" data-i18n="modpacks.create.version.label">Versión de Minecraft</label>
-                            <select id="newModpackVersion">
-                                <option value="" data-i18n="modpacks.create.version.loading">Cargando versiones...</option>
-                            </select>
+                            <div id="activeModpackLabel" style="font-size: 13px; color: var(--text-dim);">Vanilla · consultando última versión...</div>
+                            <div id="playtimeLabel" class="playtime-label"></div>
                         </div>
-                        <div>
-                            <label for="newModpackLoader" data-i18n="modpacks.create.loader.label">Loader</label>
-                            <select id="newModpackLoader">
-                                <option value="vanilla">Vanilla</option>
-                                <option value="forge">Forge</option>
-                                <option value="fabric">Fabric</option>
-                            </select>
+                        <button class="secondary" id="openModpacksBtn" data-i18n="main.install.myModpacks">Mis modpacks</button>
+                    </div>
+                </div>
+
+                <div class="play-row">
+                    <button id="playBtn" data-i18n="main.play">Iniciar Juego</button>
+                    <button id="stopBtn" class="danger" disabled style="flex-shrink:0; width:120px;" data-i18n="main.stop">Detener</button>
+                </div>
+
+                <div class="console-link-row">
+                    <button class="switch-link" id="openConsoleBtn" data-i18n="main.openConsole">Ver consola del juego</button>
+                </div>
+
+                <details class="collapsible">
+                    <summary data-i18n="java.advanced.title">⚙️ Configuración avanzada de Java</summary>
+                    <div class="collapsible-body">
+                        <p data-i18n="java.advanced.desc">Flags de JVM extra para lanzar el juego (por ejemplo, flags de G1GC para mejorar el rendimiento). Déjalo vacío si no sabes qué es esto.</p>
+                        <textarea id="customJvmArgsInput" class="jvm-args-textarea" data-i18n-placeholder="java.advanced.placeholder" placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled ..."></textarea>
+                    </div>
+                </details>
+
+                <details class="collapsible">
+                    <summary data-i18n="servers.title">🌐 Servidores favoritos</summary>
+                    <div class="collapsible-body">
+                        <div id="favoriteServersList" class="favorite-servers-list"></div>
+                        <div class="favorite-server-add-row">
+                            <input type="text" id="newServerName" data-i18n-placeholder="servers.name.placeholder" placeholder="Nombre (p.ej. SMP de amigos)">
+                            <input type="text" id="newServerAddress" data-i18n-placeholder="servers.address.placeholder" placeholder="IP:puerto">
+                            <button class="secondary" id="addFavoriteServerBtn" data-i18n="servers.add">Añadir</button>
                         </div>
                     </div>
-                    <div id="loaderVersionField" class="field" style="display:none;">
-                        <label for="newModpackLoaderVersion" data-i18n="modpacks.create.loaderVersion.label">Versión del loader</label>
-                        <select id="newModpackLoaderVersion">
-                            <option value="" data-i18n="modpacks.create.loaderVersion.loading">Cargando versiones...</option>
-                        </select>
-                    </div>
-                    <button id="createModpackBtn" data-i18n="modpacks.create.button">Crear modpack</button>
-                </div>
-            </details>
+                </details>
 
-            <div class="field">
-                <label data-i18n="modpacks.import.label">¿Ya tienes modpacks instalados?</label>
-                <button class="secondary" id="openImportModalBtn" data-i18n="modpacks.import.button">Importar desde CurseForge/Modrinth</button>
+                <div id="progressWrap">
+                    <div class="progress-track">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div id="progressLabel" data-i18n="main.progress.preparing">Preparando...</div>
+                </div>
             </div>
 
-            <div class="field">
-                <label data-i18n="modpacks.owned.label">Mis modpacks (creados por mí)</label>
+            <div class="card dashboard-col-modpacks" id="modpacksPanel">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="modpacks.title">Modpacks</h3>
+                    <span class="backend-status" id="backendStatusDot" title="">
+                        <span class="status-dot"></span>
+                        <span id="backendStatusText" data-i18n="backend.status.checking">Comprobando servidor...</span>
+                    </span>
+                </div>
+
+                <input type="text" id="modpackSearchInput" class="modpack-search" data-i18n-placeholder="modpacks.search.placeholder" placeholder="Buscar modpack por nombre...">
+
+                <div class="modpacks-action-row">
+                    <button class="secondary" id="openImportModalBtn" data-i18n="modpacks.import.button">Importar</button>
+                    <button class="secondary" id="openRedeemInviteModalBtn" data-i18n="modpacks.invite.button">Unirme por invitación</button>
+                    <button class="icon-btn" id="openCreateModpackModalBtn" title="Crear un modpack nuevo" data-i18n-title="modpacks.create.title">+</button>
+                </div>
+
                 <div id="storageUsageBar" class="storage-usage" style="display:none;">
                     <div class="storage-usage-track"><div class="storage-usage-fill" id="storageUsageFill"></div></div>
                     <span id="storageUsageText"></span>
                 </div>
-                <div id="ownedModpacksList" class="modpack-grid"></div>
-            </div>
 
-            <div class="field">
-                <label data-i18n="modpacks.shared.label">Modpacks compartidos conmigo</label>
-                <div id="sharedModpacksList" class="modpack-grid"></div>
-            </div>
+                <div class="field">
+                    <label data-i18n="modpacks.owned.label">Mis modpacks (creados por mí)</label>
+                    <div id="ownedModpacksList" class="modpack-grid"></div>
+                </div>
 
-            <div class="field">
-                <label data-i18n="modpacks.vanilla.label">Jugar sin modpack</label>
-                <button class="secondary" id="useVanillaBtn" data-i18n="modpacks.vanilla.button">Usar Minecraft vanilla (última versión)</button>
+                <div class="field">
+                    <label data-i18n="modpacks.shared.label">Modpacks compartidos conmigo</label>
+                    <div id="sharedModpacksList" class="modpack-grid"></div>
+                </div>
+
+                <div class="field">
+                    <button class="secondary" id="useVanillaBtn" data-i18n="modpacks.vanilla.button">Usar Minecraft vanilla (última versión)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- POPUP: CREAR MODPACK NUEVO -->
+        <div id="createModpackModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
+            <div class="modal-card card">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="modpacks.create.title">➕ Crear un modpack nuevo</h3>
+                    <button class="switch-link" id="closeCreateModpackModalBtn" data-i18n="modal.close">Cerrar</button>
+                </div>
+                <p data-i18n="modpacks.create.desc">Solo disponible con cuenta Microsoft. Puedes elegir cualquier versión de Minecraft y el loader (Forge/Fabric).</p>
+                <input type="text" id="newModpackName" data-i18n-placeholder="modpacks.create.name.placeholder" placeholder="Nombre del modpack">
+                <div class="create-modpack-grid">
+                    <div>
+                        <label for="newModpackVersion" data-i18n="modpacks.create.version.label">Versión de Minecraft</label>
+                        <select id="newModpackVersion">
+                            <option value="" data-i18n="modpacks.create.version.loading">Cargando versiones...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="newModpackLoader" data-i18n="modpacks.create.loader.label">Loader</label>
+                        <select id="newModpackLoader">
+                            <option value="vanilla">Vanilla</option>
+                            <option value="forge">Forge</option>
+                            <option value="fabric">Fabric</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="loaderVersionField" class="field" style="display:none;">
+                    <label for="newModpackLoaderVersion" data-i18n="modpacks.create.loaderVersion.label">Versión del loader</label>
+                    <select id="newModpackLoaderVersion">
+                        <option value="" data-i18n="modpacks.create.loaderVersion.loading">Cargando versiones...</option>
+                    </select>
+                </div>
+                <button id="createModpackBtn" data-i18n="modpacks.create.button">Crear modpack</button>
+            </div>
+        </div>
+
+        <!-- POPUP: UNIRME CON UN LINK DE INVITACIÓN -->
+        <div id="redeemInviteModal" class="modal-overlay" role="dialog" aria-modal="true" tabindex="-1">
+            <div class="modal-card card">
+                <div class="modpacks-header">
+                    <h3 style="margin: 0;" data-i18n="modpacks.invite.title">🔗 Unirme con un link de invitación</h3>
+                    <button class="switch-link" id="closeRedeemInviteModalBtn" data-i18n="modal.close">Cerrar</button>
+                </div>
+                <p data-i18n="modpacks.invite.desc">Pega aquí el link <code>milauncher://invite/...</code> que te hayan compartido.</p>
+                <input type="text" id="inviteLinkInput" data-i18n-placeholder="modpacks.invite.placeholder" placeholder="milauncher://invite/xxxxxxxx">
+                <button id="redeemInviteBtn" data-i18n="modpacks.invite.button">Canjear invitación</button>
             </div>
         </div>
 

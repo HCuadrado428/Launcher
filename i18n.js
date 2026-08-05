@@ -1355,4 +1355,7 @@ function setLanguage(lang) {
     document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
         el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
     });
+    document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+        el.title = t(el.getAttribute('data-i18n-title'));
+    });
 }

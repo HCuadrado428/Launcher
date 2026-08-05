@@ -1,6 +1,6 @@
 const loginScreen = document.getElementById('loginScreen');
 const mainScreen = document.getElementById('mainScreen');
-const modpacksScreen = document.getElementById('modpacksScreen');
+const modpacksPanel = document.getElementById('modpacksPanel');
 
 const languageSelect = document.getElementById('languageSelect');
 const themeSwitcher = document.getElementById('themeSwitcher');
@@ -69,8 +69,14 @@ const toastWrap = document.getElementById('toastWrap');
 const activeModpackLabel = document.getElementById('activeModpackLabel');
 const playtimeLabel = document.getElementById('playtimeLabel');
 const openModpacksBtn = document.getElementById('openModpacksBtn');
-const backToMainBtn = document.getElementById('backToMainBtn');
 const useVanillaBtn = document.getElementById('useVanillaBtn');
+
+const openCreateModpackModalBtn = document.getElementById('openCreateModpackModalBtn');
+const createModpackModal = document.getElementById('createModpackModal');
+const closeCreateModpackModalBtn = document.getElementById('closeCreateModpackModalBtn');
+const openRedeemInviteModalBtn = document.getElementById('openRedeemInviteModalBtn');
+const redeemInviteModal = document.getElementById('redeemInviteModal');
+const closeRedeemInviteModalBtn = document.getElementById('closeRedeemInviteModalBtn');
 
 const inviteLinkInput = document.getElementById('inviteLinkInput');
 const redeemInviteBtn = document.getElementById('redeemInviteBtn');

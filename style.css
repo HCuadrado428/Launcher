@@ -286,6 +286,49 @@ h1.title {
 
 .screen { display: none; }
 .screen.active { display: block; animation: screen-in .32s cubic-bezier(.2, .7, .3, 1); }
+
+/* mainScreen y modpacksScreen eran antes dos "pantallas" entre las que
+   había que navegar con un botón de "volver"; ahora son dos columnas del
+   mismo panel, siempre visibles a la vez en cuanto hay sesión iniciada, así
+   que mainScreen necesita comportarse como un contenedor flex en vez de un
+   bloque de una sola tarjeta (la especificidad del #id gana a .screen.active). */
+#mainScreen.screen.active { display: flex; }
+.dashboard-grid {
+    width: 100%;
+    max-width: 1000px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 20px;
+}
+.dashboard-col-play { flex-shrink: 0; }
+.dashboard-col-modpacks {
+    flex: 1 1 420px;
+    min-width: 380px;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+}
+
+.modpacks-action-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.modpacks-action-row button.secondary {
+    flex: 1;
+    width: auto;
+    font-size: 12px;
+    padding: 9px 8px;
+}
+.icon-btn {
+    width: 40px;
+    flex-shrink: 0;
+    padding: 0;
+    font-size: 20px;
+    line-height: 1;
+    font-weight: 400;
+}
 @keyframes screen-in {
     from { opacity: 0; transform: translateY(14px) scale(.98); }
     to { opacity: 1; transform: translateY(0) scale(1); }

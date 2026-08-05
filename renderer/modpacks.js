@@ -20,12 +20,24 @@ async function updateActiveModpackLabel(activeModpack) {
     }
 }
 
+// El panel de modpacks ya está siempre visible junto al de ajustes (no es
+// una pantalla aparte a la que navegar); este botón solo hace scroll hasta
+// él, útil sobre todo en ventanas estrechas donde las columnas se apilan.
 openModpacksBtn.addEventListener('click', () => {
-    showScreen('modpacksScreen');
+    modpacksPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+// Carga inicial del panel de modpacks: se llama una vez justo después de
+// iniciar sesión (o al arrancar si ya había una sesión guardada), no cada
+// vez que se muestra mainScreen — a diferencia de antes, mainScreen ahora
+// se vuelve a mostrar constantemente (tras sincronizar, tras seleccionar
+// vanilla...) y recargar la lista en cada una de esas veces sería
+// desperdiciar peticiones al backend sin necesidad.
+function refreshDashboard() {
     loadModpacks();
     ensureReleaseVersionsLoaded();
     refreshBackendStatus();
-});
+}
 
 // --- Estado del servidor ---
 // El backend gratuito puede estar dormido; este puntito avisa de eso antes
@@ -47,10 +59,8 @@ async function refreshBackendStatus() {
 }
 
 setInterval(() => {
-    if (modpacksScreen.classList.contains('active')) refreshBackendStatus();
+    if (mainScreen.classList.contains('active')) refreshBackendStatus();
 }, 45000);
-
-backToMainBtn.addEventListener('click', () => showScreen('mainScreen'));
 
 useVanillaBtn.addEventListener('click', async () => {
     await window.electronAPI.selectActiveModpack(null, null, null, null);
@@ -226,6 +236,14 @@ async function loadModpacks() {
     }
 }
 
+openCreateModpackModalBtn.addEventListener('click', () => {
+    ensureReleaseVersionsLoaded();
+    createModpackModal.classList.add('active');
+});
+closeCreateModpackModalBtn.addEventListener('click', () => {
+    createModpackModal.classList.remove('active');
+});
+
 createModpackBtn.addEventListener('click', async () => {
     const name = newModpackName.value.trim();
     const version = newModpackVersion.value;
@@ -239,10 +257,18 @@ createModpackBtn.addEventListener('click', async () => {
         await window.electronAPI.createModpack(name, version, loader, loaderVersion);
         newModpackName.value = '';
         showToast(t('toast.modpackCreated'), 'info');
+        createModpackModal.classList.remove('active');
         loadModpacks();
     } catch (err) {
         showToast(err.message || t('toast.modpackCreateFailed'), 'error');
     }
+});
+
+openRedeemInviteModalBtn.addEventListener('click', () => {
+    redeemInviteModal.classList.add('active');
+});
+closeRedeemInviteModalBtn.addEventListener('click', () => {
+    redeemInviteModal.classList.remove('active');
 });
 
 async function redeemInvite(rawToken) {
@@ -252,6 +278,7 @@ async function redeemInvite(rawToken) {
         const result = await window.electronAPI.redeemInvite(token);
         showToast(t('toast.inviteJoined', { name: result.modpack.name }), 'info');
         inviteLinkInput.value = '';
+        redeemInviteModal.classList.remove('active');
         loadModpacks();
     } catch (err) {
         showToast(err.message || t('toast.inviteRedeemFailed'), 'error');
@@ -269,7 +296,8 @@ redeemInviteBtn.addEventListener('click', async () => {
 
 // Cuando el sistema operativo abre un link milauncher://invite/TOKEN
 window.electronAPI.onInviteReceived((data) => {
-    showScreen('modpacksScreen');
+    showScreen('mainScreen');
+    modpacksPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     loadModpacks();
     redeemInvite(data.token);
 });
