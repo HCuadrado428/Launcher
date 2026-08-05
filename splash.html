@@ -20,21 +20,27 @@
         justify-content: center;
         gap: 18px;
         font-family: 'Segoe UI', Inter, sans-serif;
-        background: #101216;
-        border-radius: 12px;
-        border: 1px solid #262b33;
+        background: radial-gradient(circle at 50% 30%, #2a1c17, #120e0d 75%);
+        border-radius: 20px;
+        border: 1px solid #3a2c22;
         -webkit-user-select: none;
     }
     .splash-icon {
-        width: 64px;
-        height: 64px;
+        width: 84px;
+        height: 84px;
+        filter: drop-shadow(0 0 18px #ff8a3d66);
+        animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); filter: drop-shadow(0 0 14px #ff8a3d55); }
+        50% { transform: scale(1.06); filter: drop-shadow(0 0 22px #ff8a3d99); }
     }
     .splash-title {
-        font-family: 'Segoe UI', Inter, sans-serif;
-        font-weight: 700;
-        font-size: 14px;
-        color: #e8eaed;
-        letter-spacing: .3px;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 13px;
+        color: #ff8a3d;
+        letter-spacing: .5px;
+        text-shadow: 2px 2px 0 #00000055;
     }
     .splash-dots {
         display: flex;
