@@ -18,6 +18,18 @@
                 </div>
             </div>
             <div class="top-bar-controls">
+                <!-- La sesión vive en la cabecera (no dentro de la pantalla
+                     principal) para que se vea desde cualquier pantalla, no
+                     solo la principal. showScreen() en utils.js la
+                     muestra/oculta según si loginScreen está activa. -->
+                <div class="account-bar" id="accountBar" style="display:none;">
+                    <div class="avatar" id="avatar">?</div>
+                    <div class="account-info">
+                        <div class="account-name" id="accountName">-</div>
+                        <div class="account-type" id="accountType">-</div>
+                    </div>
+                    <button class="switch-link" id="switchAccountBtn" data-i18n="main.switchAccount">Cambiar cuenta</button>
+                </div>
                 <div class="theme-switcher" id="themeSwitcher">
                     <button class="theme-swatch" data-theme="ember" title="Ember" style="--swatch:#ff8a3d"></button>
                     <button class="theme-swatch" data-theme="glacier" title="Glacier" style="--swatch:#4fb3ff"></button>
@@ -33,6 +45,7 @@
             </div>
         </div>
 
+        <div class="app-content">
         <div id="updateBanner" class="update-banner">
             <span id="updateBannerText"></span>
             <button id="updateRestartBtn" class="secondary" style="display:none;" data-i18n="update.restart">Reiniciar y actualizar</button>
@@ -69,15 +82,6 @@
 
         <!-- PANTALLA PRINCIPAL -->
         <div id="mainScreen" class="screen card">
-            <div class="account-bar">
-                <div class="avatar" id="avatar">?</div>
-                <div class="account-info">
-                    <div class="account-name" id="accountName">-</div>
-                    <div class="account-type" id="accountType">-</div>
-                </div>
-                <button class="switch-link" id="switchAccountBtn" data-i18n="main.switchAccount">Cambiar cuenta</button>
-            </div>
-
             <div class="field">
                 <label for="javaPath" data-i18n="main.java.label">Ruta de Java (java.exe)</label>
                 <div class="java-row">
@@ -361,6 +365,7 @@
                     </div>
                 </details>
             </div>
+        </div>
         </div>
     </div>
 

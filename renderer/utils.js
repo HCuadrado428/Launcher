@@ -27,6 +27,10 @@ function showToast(message, type) {
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
+    // La sesión vive en la cabecera (visible desde cualquier pantalla), pero
+    // no tiene sentido enseñarla todavía en loginScreen: ahí no hay ninguna
+    // cuenta cargada más que los valores por defecto ("?", "-").
+    accountBar.style.display = id === 'loginScreen' ? 'none' : '';
 }
 
 const HTML_ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };

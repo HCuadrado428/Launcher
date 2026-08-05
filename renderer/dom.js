@@ -20,6 +20,7 @@ const offlineUsername = document.getElementById('offlineUsername');
 const offlineLoginBtn = document.getElementById('offlineLoginBtn');
 const msLoginBtn = document.getElementById('msLoginBtn');
 
+const accountBar = document.getElementById('accountBar');
 const avatar = document.getElementById('avatar');
 const accountName = document.getElementById('accountName');
 const accountType = document.getElementById('accountType');
