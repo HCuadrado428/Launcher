@@ -21,6 +21,7 @@ const { getInstalledVanillaVersions, getMinecraftVersionToLaunch, getReleaseVers
 const { getForgeVersionsForMc, getFabricVersionsForMc, installLoaderForInstance } = require('./main/loaders');
 const { searchModrinth, resolveBestModrinthVersion } = require('./main/modrinth');
 const { findCurseForgeInstances, findModrinthInstances } = require('./main/localScan');
+const { ensureSharedGameFilesLinked } = require('./main/sharedGameFiles');
 
 // msmc se carga de forma "segura": si el usuario todavía no ha hecho
 // `npm install`, no queremos que la app entera crashee al arrancar,
@@ -193,6 +194,14 @@ async function applySharedConfigIfNeeded(modpackId, manifestConfigUpdatedAt) {
 }
 
 async function syncModpackImpl(modpackId) {
+    // assets/ y libraries/ son idénticos para cualquier instancia con la
+    // misma versión de Minecraft; enlazarlos contra el almacén compartido
+    // (en vez de dejar que cada instancia descargue su propia copia) es lo
+    // que evita volver a bajar miles de archivos ya descargados por otro
+    // modpack o por el modo vanilla. Se hace aquí, antes de instalar el
+    // loader, para que @xmcl/installer ya se los encuentre puestos.
+    ensureSharedGameFilesLinked(instanceDir(modpackId));
+
     const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
     const localMeta = loadInstanceMeta(modpackId);
     fs.mkdirSync(instanceModsDir(modpackId), { recursive: true });
