@@ -20,13 +20,6 @@ async function updateActiveModpackLabel(activeModpack) {
     }
 }
 
-// El panel de modpacks ya está siempre visible junto al de ajustes (no es
-// una pantalla aparte a la que navegar); este botón solo hace scroll hasta
-// él, útil sobre todo en ventanas estrechas donde las columnas se apilan.
-openModpacksBtn.addEventListener('click', () => {
-    modpacksPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
-
 // Carga inicial del panel de modpacks: se llama una vez justo después de
 // iniciar sesión (o al arrancar si ya había una sesión guardada), no cada
 // vez que se muestra mainScreen — a diferencia de antes, mainScreen ahora

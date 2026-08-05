@@ -115,7 +115,7 @@ const I18N = {
         'backend.status.down': 'Servidor no disponible (puede estar dormido, espera unos segundos)',
 
         'modpacks.manage': 'Gestionar',
-        'modpacks.play': 'Jugar',
+        'modpacks.play': 'Seleccionar',
         'modpacks.owner.suffix': ' · creado por ti',
         'modpacks.empty.owned': 'Todavía no has creado ningún modpack.',
         'modpacks.empty.shared': 'Nadie te ha compartido ningún modpack todavía.',
@@ -381,7 +381,7 @@ const I18N = {
         'backend.status.down': 'Server unavailable (it may be asleep, wait a few seconds)',
 
         'modpacks.manage': 'Manage',
-        'modpacks.play': 'Play',
+        'modpacks.play': 'Select',
         'modpacks.owner.suffix': ' · created by you',
         'modpacks.empty.owned': "You haven't created any modpack yet.",
         'modpacks.empty.shared': 'No one has shared a modpack with you yet.',
@@ -647,7 +647,7 @@ const I18N = {
         'backend.status.down': 'Serveur indisponible (il est peut-être en veille, attendez quelques secondes)',
 
         'modpacks.manage': 'Gérer',
-        'modpacks.play': 'Jouer',
+        'modpacks.play': 'Sélectionner',
         'modpacks.owner.suffix': ' · créé par vous',
         'modpacks.empty.owned': 'Vous n\'avez encore créé aucun modpack.',
         'modpacks.empty.shared': 'Personne ne vous a encore partagé de modpack.',
@@ -913,7 +913,7 @@ const I18N = {
         'backend.status.down': 'Server nicht verfügbar (schläft eventuell, warte ein paar Sekunden)',
 
         'modpacks.manage': 'Verwalten',
-        'modpacks.play': 'Spielen',
+        'modpacks.play': 'Auswählen',
         'modpacks.owner.suffix': ' · von dir erstellt',
         'modpacks.empty.owned': 'Du hast noch kein Modpack erstellt.',
         'modpacks.empty.shared': 'Noch niemand hat ein Modpack mit dir geteilt.',
@@ -1179,7 +1179,7 @@ const I18N = {
         'backend.status.down': 'Servidor indisponível (pode estar dormindo, espere alguns segundos)',
 
         'modpacks.manage': 'Gerenciar',
-        'modpacks.play': 'Jogar',
+        'modpacks.play': 'Selecionar',
         'modpacks.owner.suffix': ' · criado por você',
         'modpacks.empty.owned': 'Você ainda não criou nenhum modpack.',
         'modpacks.empty.shared': 'Ninguém compartilhou nenhum modpack com você ainda.',

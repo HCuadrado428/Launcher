@@ -20,18 +20,11 @@ function renderAccount(account) {
             avatar.classList.remove('avatar-render');
             avatar.innerText = (account.username || '?')[0].toUpperCase();
         }
-        openModpacksBtn.disabled = false;
     } else {
         accountType.innerText = t('account.offline');
         avatar.classList.remove('avatar-render');
         avatar.innerHTML = '';
         avatar.innerText = (account.username || '?')[0].toUpperCase();
-        // Las cuentas offline ahora sí se registran en el backend (como "no
-        // premium"): pueden crear modpacks propios y unirse a los que les
-        // compartan. Lo único que no pueden hacer es generar invitaciones
-        // para compartir los suyos (ver el gateo por account.premium en
-        // openModsModal).
-        openModpacksBtn.disabled = false;
     }
 }
 

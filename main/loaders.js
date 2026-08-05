@@ -119,6 +119,16 @@ function runInstallTask(task, modpackId, labelPrefix) {
 // modpack (p.ej. "47.4.10" o "0.19.3"). Si viene vacía (modpacks antiguos,
 // creados antes de poder elegir versión), se resuelve automáticamente la
 // recomendada.
+// installVersionTask por sí solo instala también los assets/librerías
+// vanilla (miles de archivos pequeños: sonidos, idiomas, texturas...), no
+// solo el .jar y el version.json — sin esto se quedaba con la concurrencia
+// por defecto de @xmcl/installer (sin ajustar, a diferencia del paso de
+// abajo), que puede ser bastante más baja. Con miles de archivos, la
+// diferencia entre esa concurrencia por defecto y una explícita se nota
+// literalmente en minutos: es la causa más probable de que la primera
+// sincronización de un modpack con Forge/Fabric tarde muchísimo.
+const INSTALL_CONCURRENCY = { assetsDownloadConcurrency: 10, librariesDownloadConcurrency: 10 };
+
 async function installLoaderForInstance(modpackId, mcVersion, loader, requestedLoaderVersion) {
     if (loader !== 'forge' && loader !== 'fabric') return null;
 
@@ -134,7 +144,7 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
     const versionList = await getVersionList();
     const versionMeta = versionList.versions.find((v) => v.id === mcVersion);
     if (!versionMeta) throw new Error(`Minecraft ${mcVersion} no aparece en la lista de versiones de Mojang.`);
-    await runInstallTask(installVersionTask(versionMeta, root), modpackId, 'Descargando Minecraft base');
+    await runInstallTask(installVersionTask(versionMeta, root, INSTALL_CONCURRENCY), modpackId, 'Descargando Minecraft base');
 
     let versionId;
     if (loader === 'forge') {
@@ -163,13 +173,17 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
     let lastErr;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
         try {
-            // Antes eran 12/12: con tantos archivos pequeños a la vez, un
-            // antivirus escaneando cada uno en tiempo real puede saturar
-            // disco y CPU y ralentizar todo el sistema, no solo el
-            // launcher. 6/6 sigue siendo razonablemente rápido y es menos
-            // agresivo.
+            // Esto había bajado antes de 12/12 a 6/6 porque con tantos
+            // archivos pequeños a la vez, un antivirus escaneando cada uno
+            // en tiempo real puede saturar disco y CPU y ralentizar todo el
+            // sistema. Pero 6/6 combinado con installVersionTask (arriba)
+            // sin ninguna concurrencia ajustada hacía que la primera
+            // sincronización de un modpack pudiera tardar del orden de
+            // minutos con miles de archivos pequeños de por medio. 10/10 es
+            // un punto medio: sigue siendo bastante menos agresivo que el
+            // 12/12 original.
             await runInstallTask(
-                installDependenciesTask(resolved, { assetsDownloadConcurrency: 6, librariesDownloadConcurrency: 6 }),
+                installDependenciesTask(resolved, INSTALL_CONCURRENCY),
                 modpackId,
                 `Descargando librerías de ${loader}`
             );

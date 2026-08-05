@@ -68,7 +68,6 @@ const toastWrap = document.getElementById('toastWrap');
 
 const activeModpackLabel = document.getElementById('activeModpackLabel');
 const playtimeLabel = document.getElementById('playtimeLabel');
-const openModpacksBtn = document.getElementById('openModpacksBtn');
 const useVanillaBtn = document.getElementById('useVanillaBtn');
 
 const openCreateModpackModalBtn = document.getElementById('openCreateModpackModalBtn');
