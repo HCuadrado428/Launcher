@@ -53,13 +53,21 @@ async function openModsModal(id, name, mcVersion, loader, isOwner = true) {
         const isPremium = Boolean(currentAccount && currentAccount.premium);
         generateInviteBtn.style.display = isPremium ? '' : 'none';
         inviteNonPremiumHint.style.display = isPremium ? 'none' : '';
-        await loadInvitesAndAccess();
-        await loadVersionHistory();
     }
 
     modsModal.classList.add('active');
-    await reloadModsList();
-    await refreshModpackHealth(id);
+
+    // Estas cuatro cargas son independientes entre sí (todas solo necesitan
+    // el id ya guardado arriba, ninguna depende del resultado de otra), así
+    // que se piden en paralelo en vez de una detrás de otra. Antes, con el
+    // backend "dormido" (Railway en el plan gratis), la primera pagaba el
+    // tiempo de despertarlo y las otras tres esperaban en cola sin motivo.
+    await Promise.all([
+        isOwner ? loadInvitesAndAccess() : Promise.resolve(),
+        isOwner ? loadVersionHistory() : Promise.resolve(),
+        reloadModsList(),
+        refreshModpackHealth(id)
+    ]);
 }
 
 async function loadInvitesAndAccess() {

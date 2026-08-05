@@ -993,7 +993,7 @@ ipcMain.handle('modpacks-manifest', async (event, { id }) => {
 // contenido (para eso está "Verificar archivos", más lento a propósito):
 // es solo la señal barata que decide si tiene sentido ofrecer "Reparar
 // instalación" o mejor no molestar con ese botón si no hace falta.
-function checkLocalInstanceHealth(modpackId) {
+async function checkLocalInstanceHealth(modpackId) {
     const dir = instanceDir(modpackId);
     if (!fs.existsSync(dir)) return { synced: false, healthy: true };
 
@@ -1005,15 +1005,29 @@ function checkLocalInstanceHealth(modpackId) {
         if (!fs.existsSync(versionJsonPath)) return { synced: true, healthy: false };
     }
 
-    for (const mod of meta.mods || []) {
+    // Antes era un bucle síncrono de fs.existsSync por cada mod, bloqueando
+    // el proceso principal de Electron —y con él, cualquier otra petición
+    // IPC en curso, incluidas las demás que se piden en paralelo al abrir
+    // este mismo modal— durante toda la comprobación. Con fs.promises.access
+    // y varios mods a la vez no se bloquea nada, y en cuanto se detecta el
+    // primero que falta se deja de comprobar el resto.
+    const mods = meta.mods || [];
+    let missing = false;
+    await runWithConcurrencyLimit(mods, 8, async (mod) => {
+        if (missing) return;
         const filePath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
-        if (!fs.existsSync(filePath)) return { synced: true, healthy: false };
-    }
+        try {
+            await fs.promises.access(filePath, fs.constants.F_OK);
+        } catch (err) {
+            missing = true;
+        }
+    });
+    if (missing) return { synced: true, healthy: false };
 
     return { synced: true, healthy: true };
 }
 
-ipcMain.handle('modpacks-check-health', (event, { id }) => checkLocalInstanceHealth(id));
+ipcMain.handle('modpacks-check-health', async (event, { id }) => checkLocalInstanceHealth(id));
 
 ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
     const modType = type === 'resourcepack' ? 'resourcepack' : 'mod';
@@ -1097,7 +1111,13 @@ ipcMain.handle('import-local-modpack', async (event, { instancePath }) => {
     let imported = 0;
     let skipped = 0;
     const total = instance.resolvedMods.length;
-    for (const mod of instance.resolvedMods) {
+    // Cada mod se añade con su propia llamada al backend, independiente de
+    // las demás; hacerlas de una en una (como antes) significaba pagar la
+    // latencia de red completa mod a mod, que con una instancia de 60-100
+    // mods eran varios segundos de espera pura sin necesidad. Mismo patrón
+    // de concurrencia que ya se usa para sincronizar/verificar mods más
+    // abajo en este archivo.
+    await runWithConcurrencyLimit(instance.resolvedMods, 6, async (mod) => {
         try {
             await apiRequest(`/api/modpacks/${created.id}/mods/from-modrinth`, {
                 method: 'POST',
@@ -1115,7 +1135,7 @@ ipcMain.handle('import-local-modpack', async (event, { instancePath }) => {
                 modpackId: created.id
             });
         }
-    }
+    });
 
     const unresolvedCount = instance.modCount - instance.resolvedCount;
     return { modpack: created, imported, skipped, unresolvedCount };
@@ -1581,8 +1601,17 @@ function isSafeScreenshotFilename(filename) {
 }
 const SCREENSHOT_THUMBNAIL_WIDTH = 320;
 const MAX_SCREENSHOTS_LISTED = 120;
+const SCREENSHOT_THUMBNAIL_CACHE_SUBDIR = '.thumbnails';
 
-ipcMain.handle('list-screenshots', (event, { id } = {}) => {
+// El nombre de la miniatura cacheada incluye el mtime del original: si el
+// archivo cambia alguna vez (se sobreescribe, se regenera...) el nombre ya
+// no coincide y se genera una nueva sola, sin tener que invalidar nada a
+// mano ni llevar la cuenta de qué está desactualizado.
+function screenshotThumbnailCachePath(dir, filename, mtimeMs) {
+    return path.join(dir, SCREENSHOT_THUMBNAIL_CACHE_SUBDIR, `${filename}.${Math.round(mtimeMs)}.png`);
+}
+
+ipcMain.handle('list-screenshots', async (event, { id } = {}) => {
     const dir = path.join(id ? instanceDir(id) : VANILLA_ROOT, 'screenshots');
     if (!fs.existsSync(dir)) return [];
 
@@ -1595,19 +1624,37 @@ ipcMain.handle('list-screenshots', (event, { id } = {}) => {
         .sort((a, b) => b.mtimeMs - a.mtimeMs)
         .slice(0, MAX_SCREENSHOTS_LISTED);
 
-    // nativeImage.resize() genera una miniatura ligera (unas pocas decenas
-    // de KB) en vez de mandar el PNG original entero (varios MB cada uno)
-    // por IPC; con muchas capturas eso sería lentísimo y se comería memoria
-    // de sobra.
-    return files.map(({ filename, mtimeMs }) => {
+    fs.mkdirSync(path.join(dir, SCREENSHOT_THUMBNAIL_CACHE_SUBDIR), { recursive: true });
+
+    // Decodificar un PNG de captura a resolución completa (varios MB, escena
+    // 3D con mucho detalle) para sacar una miniatura pequeña cuesta del
+    // orden de decenas de ms; hacerlo de un tirón para hasta 120 capturas
+    // bloqueaba el proceso principal de Electron —que es de un solo hilo—
+    // varios segundos seguidos, dejando la ventana entera congelada.
+    //
+    // Dos mejoras: 1) las miniaturas ya generadas se cachean en disco, así
+    // que abrir la galería una segunda vez es una simple lectura de un PNG
+    // pequeño, no volver a decodificar el original; 2) se cede el control
+    // al bucle de eventos entre cada captura (setImmediate) para que la app
+    // pueda seguir repintando/respondiendo mientras se generan las que
+    // falten, en vez de congelarse de golpe.
+    const results = [];
+    for (const { filename, mtimeMs } of files) {
+        const cachePath = screenshotThumbnailCachePath(dir, filename, mtimeMs);
         let thumbnail = null;
         try {
-            thumbnail = nativeImage.createFromPath(path.join(dir, filename))
-                .resize({ width: SCREENSHOT_THUMBNAIL_WIDTH })
-                .toDataURL();
+            if (fs.existsSync(cachePath)) {
+                thumbnail = `data:image/png;base64,${fs.readFileSync(cachePath).toString('base64')}`;
+            } else {
+                const resized = nativeImage.createFromPath(path.join(dir, filename)).resize({ width: SCREENSHOT_THUMBNAIL_WIDTH });
+                fs.writeFileSync(cachePath, resized.toPNG());
+                thumbnail = resized.toDataURL();
+            }
         } catch (err) { /* archivo corrupto o formato no soportado: se omite la miniatura */ }
-        return { filename, mtimeMs, thumbnail };
-    });
+        results.push({ filename, mtimeMs, thumbnail });
+        await new Promise((resolve) => setImmediate(resolve));
+    }
+    return results;
 });
 
 ipcMain.handle('open-screenshot', (event, { id, filename } = {}) => {
@@ -1620,6 +1667,14 @@ ipcMain.handle('delete-screenshot', (event, { id, filename } = {}) => {
     if (!isSafeScreenshotFilename(filename)) throw new Error('Nombre de archivo inválido.');
     const dir = path.join(id ? instanceDir(id) : VANILLA_ROOT, 'screenshots');
     fs.unlinkSync(path.join(dir, filename));
+    // Borra también cualquier miniatura cacheada de este archivo (el mtime
+    // exacto ya no se conoce aquí, así que se buscan por prefijo).
+    const cacheDir = path.join(dir, SCREENSHOT_THUMBNAIL_CACHE_SUBDIR);
+    try {
+        for (const cached of fs.readdirSync(cacheDir)) {
+            if (cached.startsWith(`${filename}.`)) fs.unlinkSync(path.join(cacheDir, cached));
+        }
+    } catch (err) { /* la carpeta de caché no existía todavía: nada que borrar */ }
     return { ok: true };
 });
 

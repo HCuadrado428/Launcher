@@ -84,11 +84,22 @@ function findJavaCandidates() {
     return candidates;
 }
 
+// El conjunto de JDKs instalados no cambia solo durante la sesión del
+// launcher (haría falta instalar/desinstalar uno y eso sí requiere
+// reiniciar la app para que se note), así que no tiene sentido repetir el
+// escaneo síncrono de varias carpetas del sistema (más caro todavía si hay
+// un antivirus interceptando cada fs.existsSync/readdirSync) en cada
+// arranque, cada cambio de cuenta y cada "usar vanilla". Mismo patrón que
+// javaMajorCache un poco más abajo en este archivo.
+let newestJavaCache;
+
 function findNewestJava() {
+    if (newestJavaCache !== undefined) return newestJavaCache;
     const candidates = findJavaCandidates();
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => compareVersionArrays(b.version, a.version));
-    return candidates[0].path;
+    newestJavaCache = candidates.length === 0
+        ? null
+        : candidates.sort((a, b) => compareVersionArrays(b.version, a.version))[0].path;
+    return newestJavaCache;
 }
 
 // ============================================================================

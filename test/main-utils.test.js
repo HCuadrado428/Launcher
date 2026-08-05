@@ -38,6 +38,38 @@ test('requiredJavaMajorFor sigue los requisitos oficiales de Mojang', () => {
     assert.equal(requiredJavaMajorFor('1.21.1'), 21);
 });
 
+test('findNewestJava cachea el resultado (no vuelve a escanear el disco en llamadas posteriores)', () => {
+    delete require.cache[require.resolve('../main/java')];
+    const { findNewestJava } = require('../main/java');
+
+    const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-fake-java-'));
+    // parseVersionFromDirName lee este nombre de carpeta para decidir si es
+    // "la más nueva"; un número altísimo garantiza que gane la comparación
+    // pase lo que pase haya instalado de verdad en la máquina donde corra
+    // el test (aquí hay, por ejemplo, un jdk-26.x real).
+    const fakeJavaHome = path.join(tmpBase, 'jdk-999.0.1');
+    const javaExePath = path.join(fakeJavaHome, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+    fs.mkdirSync(path.dirname(javaExePath), { recursive: true });
+    fs.writeFileSync(javaExePath, '');
+
+    const originalJavaHome = process.env.JAVA_HOME;
+    process.env.JAVA_HOME = fakeJavaHome;
+    try {
+        const first = findNewestJava();
+        assert.equal(first, javaExePath, 'la primera llamada debería encontrar el Java falso (versión más alta) vía JAVA_HOME');
+
+        // Se borra el JDK falso: si findNewestJava no estuviera cacheado, la
+        // siguiente llamada ya no lo encontraría (o encontraría otra cosa).
+        fs.rmSync(tmpBase, { recursive: true, force: true });
+        const second = findNewestJava();
+        assert.equal(second, first, 'la segunda llamada debe devolver el resultado cacheado, sin volver a escanear el disco');
+    } finally {
+        if (originalJavaHome === undefined) delete process.env.JAVA_HOME;
+        else process.env.JAVA_HOME = originalJavaHome;
+        fs.rmSync(tmpBase, { recursive: true, force: true });
+    }
+});
+
 test('formatBytesMain da un formato legible', () => {
     assert.equal(formatBytesMain(500), '500 B');
     assert.equal(formatBytesMain(1024 * 1024 * 5), '5.0 MB');
