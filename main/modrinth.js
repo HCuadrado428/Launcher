@@ -3,6 +3,10 @@
 // ============================================================================
 
 const { version: APP_VERSION } = require('../package.json');
+const { fetchWithTimeout } = require('./httpUtils');
+const { tm } = require('./i18nMain');
+
+const MODRINTH_TIMEOUT_MS = 20000;
 
 // Modrinth pide un User-Agent que identifique la app y su versión. Se saca de
 // package.json (antes estaba fijo a mano y se quedaba desactualizado).
@@ -20,10 +24,10 @@ async function searchModrinth(query, mcVersion, loader, projectType) {
         limit: '20'
     });
 
-    const res = await fetch(`https://api.modrinth.com/v2/search?${params.toString()}`, {
+    const res = await fetchWithTimeout(`https://api.modrinth.com/v2/search?${params.toString()}`, {
         headers: { 'User-Agent': MODRINTH_USER_AGENT }
-    });
-    if (!res.ok) throw new Error(`Modrinth respondió con estado ${res.status} al buscar.`);
+    }, MODRINTH_TIMEOUT_MS);
+    if (!res.ok) throw new Error(tm('sys.modrinthSearchFailed', { status: res.status }));
     const data = await res.json();
     return data.hits;
 }
@@ -35,10 +39,10 @@ async function resolveBestModrinthVersion(projectId, mcVersion, loader, projectT
     if (mcVersion) params.set('game_versions', JSON.stringify([mcVersion]));
     if (projectType === 'mod' && loader && loader !== 'vanilla') params.set('loaders', JSON.stringify([loader]));
 
-    const res = await fetch(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version?${params.toString()}`, {
+    const res = await fetchWithTimeout(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version?${params.toString()}`, {
         headers: { 'User-Agent': MODRINTH_USER_AGENT }
-    });
-    if (!res.ok) throw new Error(`Modrinth respondió con estado ${res.status} al consultar versiones.`);
+    }, MODRINTH_TIMEOUT_MS);
+    if (!res.ok) throw new Error(tm('sys.modrinthVersionsFailed', { status: res.status }));
     const versions = await res.json();
     return versions[0] || null;
 }

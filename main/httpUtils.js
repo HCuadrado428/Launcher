@@ -2,8 +2,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
-
-const TIMEOUT_MESSAGE = 'El servidor ha tardado demasiado en responder (puede estar arrancando tras estar inactivo). Inténtalo de nuevo en unos segundos.';
+const { tm } = require('./i18nMain');
 
 // Backends "gratis" (como el de Railway que usamos) pueden tardar bastante
 // en despertar tras estar inactivos, y una petición colgada sin límite de
@@ -17,7 +16,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
         return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
         if (err.name === 'AbortError') {
-            throw new Error(TIMEOUT_MESSAGE, { cause: err });
+            throw new Error(tm('sys.timeout'), { cause: err });
         }
         throw err;
     } finally {
@@ -44,7 +43,7 @@ async function downloadToFile(url, destPath, { headers = {}, expectedSha1 = null
     try {
         const res = await fetch(url, { headers, signal: controller.signal });
         if (!res.ok || !res.body) {
-            const err = new Error(`El servidor respondió con estado ${res.status}.`);
+            const err = new Error(tm('sys.serverStatus', { status: res.status }));
             err.status = res.status;
             throw err;
         }
@@ -70,7 +69,7 @@ async function downloadToFile(url, destPath, { headers = {}, expectedSha1 = null
     } catch (err) {
         await fs.promises.rm(tmpPath, { force: true });
         if (controller.signal.aborted) {
-            throw new Error(TIMEOUT_MESSAGE, { cause: err });
+            throw new Error(tm('sys.timeout'), { cause: err });
         }
         throw err;
     } finally {

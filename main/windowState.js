@@ -12,4 +12,10 @@ function getMainWindow() {
     return mainWindow;
 }
 
-module.exports = { setMainWindow, getMainWindow };
+// Manda un evento a la ventana si sigue abierta; si no, se descarta sin más
+// (p.ej. progreso de una descarga que termina mientras la app se cierra).
+function sendToWindow(channel, payload) {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+
+module.exports = { setMainWindow, getMainWindow, sendToWindow };

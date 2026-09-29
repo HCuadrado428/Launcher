@@ -3,6 +3,7 @@ const path = require('path');
 const { fetchWithTimeout } = require('./httpUtils');
 const { VANILLA_ROOT } = require('./paths');
 const { sortVersionIdsNewestFirst } = require('./utils');
+const { fallbackJavaRequirementFor } = require('./java');
 
 // ============================================================================
 // ÚLTIMA VERSIÓN DE MINECRAFT (igual que antes, para el modo "sin modpack")
@@ -89,7 +90,35 @@ async function getReleaseVersionsToShow() {
     }
 }
 
+// Qué Java necesita una versión de Minecraft según Mojang: el version.json de
+// cada versión trae javaVersion { component, majorVersion } (p.ej.
+// "java-runtime-delta" / 21). Las versiones antiguas no lo traen y usan
+// Java 8 ("jre-legacy"). Sin conexión se cae a la tabla aproximada de
+// java.js. Los version.json no cambian, así que se cachean para siempre.
+const javaRequirementCache = new Map();
+
+async function getJavaRequirementForVersion(mcVersion) {
+    if (javaRequirementCache.has(mcVersion)) return javaRequirementCache.get(mcVersion);
+    try {
+        const manifest = await getMojangManifest();
+        const entry = (manifest.versions || []).find((v) => v.id === mcVersion);
+        if (!entry) throw new Error(`versión ${mcVersion} no encontrada`);
+        const res = await fetchWithTimeout(entry.url, {}, 15000);
+        if (!res.ok) throw new Error(`Mojang respondió con estado ${res.status}`);
+        const versionJson = await res.json();
+        const requirement = versionJson.javaVersion && versionJson.javaVersion.component
+            ? { component: versionJson.javaVersion.component, majorVersion: versionJson.javaVersion.majorVersion }
+            : { component: 'jre-legacy', majorVersion: 8 };
+        javaRequirementCache.set(mcVersion, requirement);
+        return requirement;
+    } catch (err) {
+        console.warn(`[WARN] No se pudo leer qué Java necesita Minecraft ${mcVersion}:`, err.message);
+        return fallbackJavaRequirementFor(mcVersion);
+    }
+}
+
 module.exports = {
+    getJavaRequirementForVersion,
     getMojangManifest,
     getInstalledVanillaVersions,
     getMinecraftVersionToLaunch,

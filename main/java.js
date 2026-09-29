@@ -139,6 +139,22 @@ function requiredJavaMajorFor(mcVersion) {
     return 21;
 }
 
+// Runtime de Java oficial de Mojang ("component") que corresponde a cada
+// versión mínima de Java. Solo se usa como alternativa cuando no se puede
+// leer el version.json de Mojang (sin conexión): lo normal es usar el
+// javaVersion.component que trae ese json (ver getJavaRequirementForVersion).
+const JAVA_COMPONENT_BY_MAJOR = {
+    8: 'jre-legacy',
+    16: 'java-runtime-alpha',
+    17: 'java-runtime-gamma',
+    21: 'java-runtime-delta'
+};
+
+function fallbackJavaRequirementFor(mcVersion) {
+    const majorVersion = requiredJavaMajorFor(mcVersion);
+    return { component: JAVA_COMPONENT_BY_MAJOR[majorVersion], majorVersion };
+}
+
 // Devuelve el "major" de la instalación de Java indicada (8, 17, 21...) o
 // null si no se pudo determinar (ruta inválida, binario que no responde,
 // formato de salida inesperado...). Nunca rechaza la promesa: esto es solo
@@ -172,5 +188,6 @@ module.exports = {
     findNewestJava,
     isPlausibleJavaPath,
     requiredJavaMajorFor,
+    fallbackJavaRequirementFor,
     getInstalledJavaMajor
 };

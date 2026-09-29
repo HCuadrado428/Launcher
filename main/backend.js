@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 const { loadConfig, saveConfig } = require('./config');
 const { fetchWithTimeout, isSafeToRetry, isAllowedBackendUrl } = require('./httpUtils');
-const { getMainWindow } = require('./windowState');
+const { sendToWindow } = require('./windowState');
+const { tm } = require('./i18nMain');
 
 // ============================================================================
 // CLIENTE DE LA API DEL SERVIDOR DE MODPACKS
@@ -17,6 +18,44 @@ function getBackendUrl() {
 // Hace una petición autenticada al backend. Lanza un error legible si algo
 // falla, para que el renderer pueda mostrarlo directamente en un toast.
 //
+// Token de la sesión con el backend, o un error legible si no hay sesión.
+function requireSessionToken() {
+    const cfg = loadConfig();
+    if (!cfg.session || !cfg.session.token) {
+        throw new Error(tm('sys.sessionRequired'));
+    }
+    return cfg.session.token;
+}
+
+async function readJsonSafely(res) {
+    try {
+        return await res.json();
+    } catch (err) {
+        return null; // respuesta sin cuerpo JSON (p.ej. una página de error del proxy)
+    }
+}
+
+// Convierte una respuesta de error del backend en un Error con .status.
+//
+// Un 401 significa que el JWT guardado (dura 30 días) ha caducado o es
+// inválido. err.status no sobrevive el paso por IPC hacia el renderer
+// (Electron solo serializa el .message de los errores lanzados desde un
+// ipcMain.handle), así que en vez de depender de que cada llamante compruebe
+// el status, se cierra la sesión aquí mismo y se avisa al renderer por un
+// evento aparte para que vuelva a la pantalla de login.
+function errorFromResponse(res, data, fallbackMessage) {
+    if (res.status === 401) {
+        saveConfig({ session: null });
+        sendToWindow('session-expired');
+    }
+    const err = new Error((data && data.error) || fallbackMessage || tm('sys.serverStatus', { status: res.status }));
+    err.status = res.status;
+    return err;
+}
+
+// Hace una petición autenticada al backend. Lanza un error legible si algo
+// falla, para que el renderer pueda mostrarlo directamente en un toast.
+//
 // Si el backend está "dormido" (Railway free tier lo apaga tras estar
 // inactivo) la primera petición puede fallar por timeout o por un error de
 // red antes de que termine de arrancar. En ese caso reintentamos un par de
@@ -27,15 +66,10 @@ function getBackendUrl() {
 //
 // pathname debe construirse con apiPath`...` (httpUtils) cuando lleva ids o
 // tokens, para que vayan escapados.
-async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {}) {
-    const cfg = loadConfig();
-    if (!cfg.session || !cfg.session.token) {
-        throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
-    }
-
-    const headers = { Authorization: `Bearer ${cfg.session.token}` };
-    let payload = body;
-    if (body && !isForm) {
+async function apiRequest(pathname, { method = 'GET', body } = {}) {
+    const headers = { Authorization: `Bearer ${requireSessionToken()}` };
+    let payload;
+    if (body) {
         headers['Content-Type'] = 'application/json';
         payload = JSON.stringify(body);
     }
@@ -51,31 +85,27 @@ async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {
             continue;
         }
 
-        let data = null;
-        try { data = await res.json(); } catch (err) { /* respuesta sin cuerpo JSON */ }
-
-        if (!res.ok) {
-            // Un 401 significa que el JWT guardado (dura 30 días) ha caducado o
-            // es inválido. err.status no sobrevive el paso por IPC hacia el
-            // renderer (Electron solo serializa el .message de los errores
-            // lanzados desde un ipcMain.handle), así que en vez de depender de
-            // que cada llamante compruebe el status, cerramos la sesión aquí
-            // mismo y avisamos al renderer por un evento aparte para que pueda
-            // volver a la pantalla de login sin quedarse pillado repitiendo
-            // "token inválido" en cada acción.
-            if (res.status === 401) {
-                saveConfig({ session: null });
-                const mainWindow = getMainWindow();
-                if (mainWindow) {
-                    mainWindow.webContents.send('session-expired');
-                }
-            }
-            const err = new Error((data && data.error) || `El servidor respondió con estado ${res.status}.`);
-            err.status = res.status;
-            throw err;
-        }
+        const data = await readJsonSafely(res);
+        if (!res.ok) throw errorFromResponse(res, data);
         return data;
     }
+}
+
+// Sube un formulario multipart (mods, config compartida) al backend. Tiene
+// un timeout más largo que el resto de peticiones porque cuenta la subida
+// entera, y no se reintenta: una subida a medias ya ha gastado la conexión y
+// repetirla podría duplicar el archivo.
+const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function uploadForm(pathname, form, { method = 'POST', fallbackError } = {}) {
+    const res = await fetchWithTimeout(`${getBackendUrl()}${pathname}`, {
+        method,
+        headers: { Authorization: `Bearer ${requireSessionToken()}` },
+        body: form
+    }, UPLOAD_TIMEOUT_MS);
+    const data = await readJsonSafely(res);
+    if (!res.ok) throw errorFromResponse(res, data, fallbackError);
+    return data;
 }
 
 // Mismo algoritmo que usan los servidores de Minecraft en modo offline
@@ -102,8 +132,8 @@ async function verifyOfflineSessionWithBackend(username) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'No se pudo registrar la cuenta offline con el servidor de modpacks.');
+    const data = await readJsonSafely(res);
+    if (!res.ok || !data) throw new Error((data && data.error) || tm('sys.serverStatus', { status: res.status }));
     return data;
 }
 
@@ -115,15 +145,17 @@ async function verifySessionWithBackend(accessToken) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ access_token: accessToken })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'No se pudo verificar la sesión con el servidor de modpacks.');
+    const data = await readJsonSafely(res);
+    if (!res.ok || !data) throw new Error((data && data.error) || tm('sys.serverStatus', { status: res.status }));
     saveConfig({ session: { token: data.token, uuid: data.uuid, username: data.username, premium: !!data.premium } });
     return data;
 }
 
 module.exports = {
     getBackendUrl,
+    requireSessionToken,
     apiRequest,
+    uploadForm,
     offlineUuidFromUsername,
     verifyOfflineSessionWithBackend,
     verifySessionWithBackend

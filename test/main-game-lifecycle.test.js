@@ -141,8 +141,8 @@ function crashLogFiles() {
     return fs.existsSync(crashLogsDir) ? fs.readdirSync(crashLogsDir) : [];
 }
 
-function launch(javaPath = '/usr/lib/jvm/java-21/bin/java') {
-    ipcListeners.get('launch-game')({}, { javaPath, memory: { max: '4G', min: '2G' }, customArgs: '' });
+function launch(javaPath = '/usr/lib/jvm/java-21/bin/java', extra = {}) {
+    ipcListeners.get('launch-game')({}, { javaPath, memory: { max: '4G', min: '2G' }, customArgs: '', ...extra });
 }
 
 function fakeGameProcess() {
@@ -216,11 +216,39 @@ test('un cierre con error de verdad sí guarda crash log (con el token tapado y 
 
     const files = crashLogFiles();
     assert.equal(files.length, 1);
+    assert.equal(sentStatuses.find((s) => s.type === 'closed').hasCrashLog, true);
     const log = fs.readFileSync(path.join(crashLogsDir, files[0]), 'utf-8');
     assert.ok(!log.includes('secreto123'), 'el access token no debe acabar en el crash log');
     assert.ok(log.includes('línea 5999'));
     assert.ok(!log.includes('línea 999\n'), 'solo se guardan las últimas salidas');
     assert.equal(notifications.length, 1);
+});
+
+test('el aviso de crash incluye una pista cuando reconoce la causa', async () => {
+    const child = fakeGameProcess();
+    fakeLauncher.launchImpl = async () => child;
+    launch();
+    await waitFor(() => statusTypes().includes('launched'), 'estado launched');
+
+    fakeLauncher.emit('data', 'Exception in thread "main" java.lang.OutOfMemoryError: Java heap space\n');
+    fakeLauncher.emit('close', 1);
+    await waitFor(() => statusTypes().includes('closed'), 'estado closed');
+    assert.equal(sentStatuses.find((s) => s.type === 'closed').crashHint, 'outOfMemory');
+});
+
+test('"Entrar" en un servidor favorito pasa quickPlay al lanzador', async () => {
+    let receivedOpts = null;
+    fakeLauncher.launchImpl = async (opts) => { receivedOpts = opts; return null; };
+    launch(undefined, { server: 'play.example.com:25570' });
+    await waitFor(() => receivedOpts !== null, 'llamada a launch()');
+    // Sin red la versión cae a la de respaldo (1.20.1), que ya usa quickPlay.
+    assert.deepEqual(receivedOpts.quickPlay, { type: 'multiplayer', identifier: 'play.example.com:25570' });
+
+    receivedOpts = null;
+    sentStatuses.length = 0;
+    launch(undefined, { server: '--demo' });
+    await waitFor(() => receivedOpts !== null, 'segunda llamada a launch()');
+    assert.equal(receivedOpts.quickPlay, undefined, 'una dirección inválida se ignora');
 });
 
 test('una ruta de Java que no es java/javaw no se ejecuta', async () => {

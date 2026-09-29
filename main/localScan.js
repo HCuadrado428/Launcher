@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { runWithConcurrencyLimit, sha1File } = require('./utils');
 const { MODRINTH_USER_AGENT } = require('./modrinth');
+const { fetchWithTimeout } = require('./httpUtils');
 
 // ============================================================================
 // DETECCIÓN E IMPORTACIÓN DE MODPACKS INSTALADOS LOCALMENTE
@@ -84,11 +85,11 @@ async function findModrinthInstances() {
         let resolvedMods = [];
         if (hashes.length > 0) {
             try {
-                const res = await fetch('https://api.modrinth.com/v2/version_files', {
+                const res = await fetchWithTimeout('https://api.modrinth.com/v2/version_files', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'User-Agent': MODRINTH_USER_AGENT },
                     body: JSON.stringify({ hashes, algorithm: 'sha1' })
-                });
+                }, 30000);
                 if (res.ok) {
                     const map = await res.json();
                     resolvedMods = Object.values(map).map((version) => ({
