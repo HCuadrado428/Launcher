@@ -14,7 +14,7 @@ const { analyzeCrashLog } = require('./crashAnalysis');
 const { ensureFreshMinecraftAuth } = require('./msAuth');
 const { Auth } = require('./msmcLoader');
 const { gameCredentials, buildLaunchOptions, ensureVersionInstalled, startMinecraft } = require('./gameLauncher');
-const { sendToWindow } = require('./windowState');
+const { sendToWindow, getMainWindow } = require('./windowState');
 const { notify } = require('./notify');
 const { tm } = require('./i18nMain');
 
@@ -32,6 +32,19 @@ let launchCancelRequested = false;
 let stopRequestedByUser = false;
 let playSessionStart = null;
 let playSessionTargetKey = null;
+// La ventana se ocultó al abrir el juego (opción "Ocultar el launcher
+// mientras juegas") y hay que volver a enseñarla al cerrarlo.
+let hiddenForGame = false;
+
+function restoreWindowAfterGame() {
+    if (!hiddenForGame) return;
+    hiddenForGame = false;
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+        win.show();
+        win.focus();
+    }
+}
 
 function sendGameStatus(payload) {
     sendToWindow('game-status', payload);
@@ -104,6 +117,7 @@ function onGameClosed({ code, crashReport } = {}) {
     gameProcess = null;
     runningInstanceKey = null;
     stopRequestedByUser = false;
+    restoreWindowAfterGame();
 
     if (playSessionStart) {
         const minutesPlayed = (Date.now() - playSessionStart) / 60000;
@@ -303,6 +317,13 @@ async function launchGame({ javaPath, memory, customArgs, server }) {
         return;
     }
     sendGameStatus({ type: 'launched' });
+    if (loadConfig().hideWhilePlaying) {
+        const win = getMainWindow();
+        if (win && !win.isDestroyed()) {
+            win.hide();
+            hiddenForGame = true;
+        }
+    }
 }
 
 function registerGameIpc() {

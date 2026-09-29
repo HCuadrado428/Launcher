@@ -76,6 +76,19 @@ window.electronAPI.onModpackDownloadEstimate((data) => {
     showToast(t('toast.downloadEstimate', { size: formatBytes(data.totalBytes), count: data.fileCount }), 'info');
 });
 
+// Novedades del modpack tras sincronizar (mods añadidos, actualizados o
+// quitados, cambio de versión) y aviso si se hizo copia de los mundos.
+window.electronAPI.onModpackChanges(({ name, changes, worldsBackedUp }) => {
+    const parts = [];
+    if (changes.versionChanged) parts.push(t('changes.version', { version: changes.mcVersion, loader: LOADER_LABELS[changes.loader] || changes.loader }));
+    if (changes.added.length) parts.push(t('changes.added', { count: changes.added.length }));
+    if (changes.updated.length) parts.push(t('changes.updated', { count: changes.updated.length }));
+    if (changes.removed.length) parts.push(t('changes.removed', { count: changes.removed.length }));
+    let message = t('changes.title', { name, details: parts.join(', ') });
+    if (worldsBackedUp) message += ' ' + t('changes.worldsBackedUp');
+    showToast(message, 'info');
+});
+
 let releaseVersionsCache = null;
 
 async function ensureReleaseVersionsLoaded() {

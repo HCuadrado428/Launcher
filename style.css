@@ -929,6 +929,16 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     white-space: nowrap;
 }
 .mod-item-optional-toggle input { margin: 0; width: auto; }
+.setting-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: 400;
+    cursor: pointer;
+}
+.setting-toggle input { margin: 0; width: auto; }
 
 .invite-result {
     margin-top: 10px;

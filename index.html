@@ -138,6 +138,10 @@
                     <div class="collapsible-body">
                         <p data-i18n="java.advanced.desc">Flags de JVM extra para lanzar el juego (por ejemplo, flags de G1GC para mejorar el rendimiento). Déjalo vacío si no sabes qué es esto.</p>
                         <textarea id="customJvmArgsInput" class="jvm-args-textarea" data-i18n-placeholder="java.advanced.placeholder" placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled ..."></textarea>
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="hideWhilePlayingCheckbox">
+                            <span data-i18n="settings.hideWhilePlaying">Ocultar el launcher mientras juegas</span>
+                        </label>
                     </div>
                 </details>
 

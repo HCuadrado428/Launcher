@@ -34,13 +34,16 @@ class FakeWebContents extends EventEmitter {
 }
 
 class FakeBrowserWindow extends EventEmitter {
-    constructor() {
+    constructor(options = {}) {
         super();
+        // La ventana principal es la que tiene preload.
+        if (options.webPreferences && options.webPreferences.preload) FakeBrowserWindow.lastCreated = this;
         this.webContents = new FakeWebContents();
     }
     loadFile() {}
     isDestroyed() { return false; }
-    show() {}
+    hide() { this.hidden = true; }
+    show() { this.hidden = false; }
     close() {}
     focus() {}
 }
@@ -261,6 +264,21 @@ test('"Entrar" en un servidor favorito pasa quickPlay al lanzador', async () => 
     assert.equal(fakeGame.lastOptions.quickPlayMultiplayer, undefined, 'una dirección inválida se ignora');
     assert.equal(fakeGame.lastOptions.server, undefined);
     await waitFor(() => statusTypes().includes('error'), 'fin del segundo lanzamiento');
+});
+
+test('con "Ocultar el launcher mientras juegas", la ventana se oculta y vuelve al cerrar el juego', async () => {
+    await ipcHandlers.get('set-hide-while-playing')({}, true);
+    const proc = fakeGameProcess();
+    fakeGame.startImpl = async () => proc;
+    launch();
+    await waitFor(() => statusTypes().includes('launched'), 'estado launched');
+    const win = fakeElectron.BrowserWindow.lastCreated;
+    assert.equal(win.hidden, true);
+
+    proc.watcher.emit('minecraft-exit', { code: 0, signal: null, crashReport: '' });
+    await waitFor(() => statusTypes().includes('closed'), 'estado closed');
+    assert.equal(win.hidden, false);
+    await ipcHandlers.get('set-hide-while-playing')({}, false);
 });
 
 test('una ruta de Java que no es java/javaw no se ejecuta', async () => {

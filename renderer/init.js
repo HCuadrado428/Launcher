@@ -21,6 +21,8 @@ window.electronAPI.getConfig().then(async (cfg) => {
         showScreen('loginScreen');
     }
 
+    hideWhilePlayingCheckbox.checked = Boolean(cfg && cfg.hideWhilePlaying);
+
     if (cfg && cfg.curseforgeApiKey) {
         curseforgeApiKeyInput.value = cfg.curseforgeApiKey;
     }

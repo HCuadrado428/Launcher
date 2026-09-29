@@ -41,6 +41,7 @@ const ramSlider = document.getElementById('ramSlider');
 const ramValue = document.getElementById('ramValue');
 const ramHint = document.getElementById('ramHint');
 const customJvmArgsInput = document.getElementById('customJvmArgsInput');
+const hideWhilePlayingCheckbox = document.getElementById('hideWhilePlayingCheckbox');
 
 const playBtn = document.getElementById('playBtn');
 const stopBtn = document.getElementById('stopBtn');

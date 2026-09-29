@@ -1,10 +1,13 @@
 const { app, ipcMain, dialog } = require('electron');
+const os = require('os');
 const { loadConfig, saveConfig } = require('../config');
 const { fetchWithTimeout } = require('../httpUtils');
 const { getBackendUrl, offlineUuidFromUsername, verifyOfflineSessionWithBackend, verifySessionWithBackend } = require('../backend');
 const { findNewestJava } = require('../java');
 const { getMinecraftVersionToLaunch, getReleaseVersionsToShow } = require('../mojang');
 const { getTargetSettings } = require('../targetSettings');
+const { recommendedMemoryGb } = require('../syncChanges');
+const { loadInstanceMeta } = require('../modpackSync');
 const { upsertAccount, toPublicAccount } = require('../accountUtils');
 const { getMainWindow } = require('../windowState');
 const { tm } = require('../i18nMain');
@@ -164,6 +167,15 @@ function registerAccountsIpc() {
 
     ipcMain.handle('set-language', (event, lang) => saveConfig({ language: SUPPORTED_LANGUAGES.includes(lang) ? lang : 'es' }));
     ipcMain.handle('set-color-theme', (event, theme) => saveConfig({ colorTheme: theme }));
+    ipcMain.handle('set-hide-while-playing', (event, enabled) => saveConfig({ hideWhilePlaying: Boolean(enabled) }));
+
+    // RAM sugerida para la instalación: según los mods que tiene la
+    // instancia en local (sin tocar la red) y la RAM del sistema.
+    ipcMain.handle('get-recommended-memory', (event, { modpackId } = {}) => {
+        const modCount = modpackId ? (loadInstanceMeta(modpackId).mods || []).filter((m) => (m.type || 'mod') === 'mod').length : 0;
+        const systemRamGb = Math.round(os.totalmem() / (1024 ** 3));
+        return { gb: recommendedMemoryGb(modCount, systemRamGb), modCount };
+    });
 
     // Elección local del jugador sobre qué mods "opcionales" de un modpack
     // quiere tener instalados (ver computeSyncPlan). Ausencia de entrada =

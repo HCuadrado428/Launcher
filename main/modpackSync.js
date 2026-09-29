@@ -11,6 +11,9 @@ const { ensureSharedGameFilesLinked } = require('./sharedGameFiles');
 const { extractSharedConfigZip } = require('./sharedConfig');
 const { createKeyedLock, createSingleFlight } = require('./instanceLock');
 const { computeSyncPlan } = require('./syncPlan');
+const { summarizeSyncChanges, changesRiskWorlds } = require('./syncChanges');
+const yazl = require('yazl');
+const { addDirToZip, writeZip } = require('./zip');
 const { resolveJavaForVersion } = require('./javaRuntime');
 const { getTargetSettings } = require('./targetSettings');
 const { sendToWindow } = require('./windowState');
@@ -164,6 +167,33 @@ async function applySharedConfigIfNeeded(modpackId, manifestConfigUpdatedAt) {
     return applied;
 }
 
+// Copia de seguridad de saves/ en backups/saves-<fecha>.zip dentro de la
+// instancia, antes de aplicar cambios que pueden estropear los mundos al
+// abrirlos (ver changesRiskWorlds). Se guardan solo las MAX_WORLD_BACKUPS
+// más recientes. Devuelve la ruta de la copia, o null si no había mundos.
+const MAX_WORLD_BACKUPS = 5;
+
+async function backupWorlds(modpackId) {
+    const dir = instanceDir(modpackId);
+    const savesDir = path.join(dir, 'saves');
+    const worlds = await fs.promises.readdir(savesDir).catch(() => []);
+    if (worlds.length === 0) return null;
+
+    const backupsDir = path.join(dir, 'backups');
+    await fs.promises.mkdir(backupsDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const backupPath = path.join(backupsDir, `saves-${stamp}.zip`);
+    const zipfile = new yazl.ZipFile();
+    await addDirToZip(zipfile, savesDir, 'saves');
+    await writeZip(zipfile, backupPath);
+
+    const backups = (await fs.promises.readdir(backupsDir)).filter((f) => /^saves-.*\.zip$/.test(f)).sort();
+    for (const old of backups.slice(0, Math.max(0, backups.length - MAX_WORLD_BACKUPS))) {
+        await fs.promises.rm(path.join(backupsDir, old), { force: true });
+    }
+    return backupPath;
+}
+
 // El instalador de Forge/Fabric descarga sus propias librerías y assets
 // vanilla (puede rondar varios cientos de MB), así que sumamos un colchón
 // aproximado al comprobar espacio libre, además de un margen de seguridad.
@@ -213,6 +243,19 @@ async function syncModpackImpl(modpackId) {
         throw new Error(tm('sys.notEnoughDisk', { required: formatBytesMain(requiredBytes), free: formatBytesMain(freeBytes) }));
     }
 
+    // Novedades para el jugador y, si los cambios pueden estropear los
+    // mundos (se quitan mods, cambia la versión o el loader), una copia de
+    // saves/ antes de tocar nada.
+    const changes = summarizeSyncChanges(plan, localMeta, manifest);
+    let worldsBackup = null;
+    if (changesRiskWorlds(plan, localMeta, manifest)) {
+        try {
+            worldsBackup = await backupWorlds(modpackId);
+        } catch (err) {
+            console.warn('[WARN] No se pudo hacer la copia de los mundos:', err.message);
+        }
+    }
+
     const totalSteps = toDelete.length + toDownload.length;
     let doneSteps = 0;
     const stepDone = (label) => {
@@ -259,6 +302,10 @@ async function syncModpackImpl(modpackId) {
         requested_loader_version: requestedLoaderVersion,
         loader_version_id: loaderVersionId
     });
+
+    if (changes) {
+        sendToWindow('modpack-changes', { modpackId, name: manifest.name, changes, worldsBackedUp: Boolean(worldsBackup) });
+    }
 
     return {
         name: manifest.name,

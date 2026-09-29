@@ -43,7 +43,25 @@ async function applyTargetSettings(modpackId) {
 
     customJvmArgsInput.value = (settings && settings.customArgs) || '';
     updatePlaytimeLabel(modpackId);
+    refreshRecommendedMemory(modpackId);
 }
+
+// RAM sugerida para la instalación activa (según sus mods y la RAM del
+// sistema); se enseña bajo el slider salvo que haya un aviso más importante.
+let recommendedMemoryGb = null;
+
+async function refreshRecommendedMemory(modpackId) {
+    try {
+        recommendedMemoryGb = (await window.electronAPI.getRecommendedMemory(modpackId)).gb;
+    } catch (err) {
+        recommendedMemoryGb = null;
+    }
+    updateRamHint();
+}
+
+hideWhilePlayingCheckbox.addEventListener('change', () => {
+    window.electronAPI.setHideWhilePlaying(hideWhilePlayingCheckbox.checked);
+});
 
 // --- Horas jugadas ---
 
@@ -83,15 +101,16 @@ window.electronAPI.getSystemMemory().then((bytes) => {
 });
 
 function updateRamHint() {
-    if (!systemRamGb) return;
     const selected = parseInt(ramSlider.value, 10);
-    if (selected > systemRamGb) {
+    if (systemRamGb && selected > systemRamGb) {
         ramHint.innerText = t('main.ram.tooMuch', { total: systemRamGb });
         ramHint.classList.add('hint-warning');
-    } else {
-        ramHint.innerText = '';
-        ramHint.classList.remove('hint-warning');
+        return;
     }
+    ramHint.classList.remove('hint-warning');
+    ramHint.innerText = recommendedMemoryGb && selected !== recommendedMemoryGb
+        ? t('main.ram.recommended', { gb: recommendedMemoryGb })
+        : '';
 }
 
 ramSlider.addEventListener('input', () => {

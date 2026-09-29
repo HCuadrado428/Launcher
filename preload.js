@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Tema de color
     setColorTheme: (theme) => invoke('set-color-theme', theme),
+    setHideWhilePlaying: (enabled) => invoke('set-hide-while-playing', enabled),
+    getRecommendedMemory: (modpackId) => invoke('get-recommended-memory', { modpackId }),
 
     // Horas jugadas
     getPlaytime: (modpackId) => invoke('get-playtime', { modpackId }),
@@ -111,6 +113,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return () => ipcRenderer.removeListener('modpack-sync-progress', listener);
     },
     onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data)),
+    onModpackChanges: (callback) => ipcRenderer.on('modpack-changes', (_event, data) => callback(data)),
     checkModUpdate: (id, modId) => invoke('modpacks-check-mod-update', { id, modId }),
     updateMod: (id, modId, mcVersion, loader) => invoke('modpacks-update-mod', { id, modId, mcVersion, loader }),
     addModrinthDependencies: (id, projectIds, mcVersion, loader) => invoke('add-modrinth-dependencies', { id, projectIds, mcVersion, loader }),
