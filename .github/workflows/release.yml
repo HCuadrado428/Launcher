@@ -1,0 +1,29 @@
+name: Release
+
+# Publica el instalador de Windows como GitHub Release (lo que consume
+# electron-updater) al subir una etiqueta de versión: git tag v1.5.0 && git push --tags
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npm test
+      # Firma de código: electron-builder firma el .exe automáticamente si
+      # existen estos secretos (certificado .pfx en base64 y su contraseña).
+      # Sin ellos, el instalador se publica sin firmar (Windows SmartScreen
+      # avisará al instalarlo). Ver "Firma del instalador" en el README.
+      - run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_PFX_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}

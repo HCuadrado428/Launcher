@@ -28,7 +28,23 @@ npm run pack       # empaqueta sin instalador (dist/)
 npm run dist       # instalador NSIS para Windows
 ```
 
-Las actualizaciones automáticas (electron-updater) solo funcionan en la app instalada; `npm run release` publica un GitHub Release en este repositorio.
+Las actualizaciones automáticas (electron-updater) solo funcionan en la app instalada.
+
+### Publicar una versión
+
+1. Sube la versión en `package.json` (`npm version minor`, por ejemplo).
+2. Sube la etiqueta: `git push --follow-tags`.
+3. El workflow `Release` pasa los tests, construye el instalador y lo publica como GitHub Release, que es de donde lo descarga electron-updater.
+
+(`npm run release` hace lo mismo desde tu ordenador.)
+
+### Firma del instalador
+
+Sin firmar, Windows SmartScreen avisa al instalar y al actualizar. Para firmar hace falta un certificado de firma de código (OV o EV) de una autoridad reconocida:
+
+1. Exporta el certificado a un `.pfx` y conviértelo a base64 (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))` en PowerShell).
+2. En GitHub → Settings → Secrets and variables → Actions, crea `WINDOWS_CERTIFICATE_PFX_BASE64` (el base64) y `WINDOWS_CERTIFICATE_PASSWORD`.
+3. A partir de ahí, el workflow `Release` firma el `.exe` automáticamente. Sin esos secretos, sigue publicando sin firmar.
 
 El backend de modpacks (cuentas, invitaciones, almacenamiento de mods) es un servicio aparte; por defecto se usa el de producción configurado en `main/backend.js`.
 
