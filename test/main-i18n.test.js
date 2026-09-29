@@ -37,3 +37,22 @@ test('tm traduce según el idioma elegido y sustituye variables', () => {
     assert.equal(tm('sys.tray.quit'), 'Salir');
     setLanguageResolver(() => 'es');
 });
+
+test('cada causa de crash reconocida tiene su consejo traducido', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'main', 'crashAnalysis.js'), 'utf-8');
+    const codes = [...source.matchAll(/code: '([a-zA-Z]+)'/g)].map((m) => m[1]);
+    assert.ok(codes.length >= 5);
+    for (const code of codes) assert.ok(I18N.es[`crash.hint.${code}`], `falta crash.hint.${code}`);
+});
+
+test('toda clave t(\'...\') usada en el renderer existe en el diccionario', () => {
+    const rendererDir = path.join(__dirname, '..', 'renderer');
+    const missing = [];
+    for (const file of fs.readdirSync(rendererDir)) {
+        const source = fs.readFileSync(path.join(rendererDir, file), 'utf-8');
+        for (const match of source.matchAll(/\bt\('([^']+)'/g)) {
+            if (!I18N.es[match[1]]) missing.push(`${file}: ${match[1]}`);
+        }
+    }
+    assert.deepEqual(missing, []);
+});

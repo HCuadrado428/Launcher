@@ -50,10 +50,6 @@ scanLocalModpacksBtn.addEventListener('click', async () => {
         importResults.innerHTML = instances.length
             ? instances.map(importItemHtml).join('')
             : `<div class="empty-hint">${t('import.empty')}</div>`;
-
-        importResults.querySelectorAll('.import-btn').forEach(btn => {
-            btn.addEventListener('click', () => importLocalModpack(btn.dataset.path, btn));
-        });
     } catch (err) {
         importResults.innerHTML = '';
         showToast(err.message || t('import.scanFailed'), 'error');
@@ -61,6 +57,11 @@ scanLocalModpacksBtn.addEventListener('click', async () => {
         scanLocalModpacksBtn.disabled = false;
         scanLocalModpacksBtn.innerText = t('import.scan');
     }
+});
+
+importResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('.import-btn');
+    if (btn && !btn.disabled) importLocalModpack(btn.dataset.path, btn);
 });
 
 async function importLocalModpack(instancePath, buttonEl) {

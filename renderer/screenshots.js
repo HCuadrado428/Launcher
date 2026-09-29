@@ -4,43 +4,43 @@
 // en el explorador de archivos.
 
 let currentScreenshotsInstanceId = null;
+let currentScreenshots = [];
 
-function renderScreenshotsGrid(shots) {
-    if (!shots.length) {
+function renderScreenshotsGrid() {
+    if (!currentScreenshots.length) {
         screenshotsGrid.innerHTML = `<div class="empty-hint">${t('screenshots.empty')}</div>`;
         return;
     }
-    screenshotsGrid.innerHTML = shots.map((shot, i) => `
+    screenshotsGrid.innerHTML = currentScreenshots.map((shot, i) => `
         <div class="screenshot-item" data-index="${i}">
             ${shot.thumbnail
                 ? `<img src="${escapeHtml(shot.thumbnail)}" alt="${escapeHtml(shot.filename)}" class="screenshot-thumb">`
                 : `<div class="screenshot-thumb screenshot-thumb-broken">🖼️</div>`}
-            <button class="screenshot-delete" data-index="${i}" title="${t('screenshots.delete')}">&times;</button>
+            <button class="screenshot-delete" title="${t('screenshots.delete')}">&times;</button>
         </div>
     `).join('');
-
-    screenshotsGrid.querySelectorAll('.screenshot-thumb').forEach((el) => {
-        el.addEventListener('click', () => {
-            const index = Number(el.closest('.screenshot-item').dataset.index);
-            window.electronAPI.openScreenshot(currentScreenshotsInstanceId, shots[index].filename);
-        });
-    });
-    screenshotsGrid.querySelectorAll('.screenshot-delete').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            const index = Number(btn.dataset.index);
-            const confirmed = confirm(t('screenshots.deleteConfirm'));
-            if (!confirmed) return;
-            try {
-                await window.electronAPI.deleteScreenshot(currentScreenshotsInstanceId, shots[index].filename);
-                shots.splice(index, 1);
-                renderScreenshotsGrid(shots);
-            } catch (err) {
-                showToast(err.message || t('screenshots.deleteFailed'), 'error');
-            }
-        });
-    });
 }
+
+// Un solo listener para toda la galería en vez de dos por captura.
+screenshotsGrid.addEventListener('click', async (e) => {
+    const item = e.target.closest('.screenshot-item');
+    if (!item) return;
+    const shot = currentScreenshots[Number(item.dataset.index)];
+    if (!shot) return;
+
+    if (e.target.closest('.screenshot-delete')) {
+        if (!confirm(t('screenshots.deleteConfirm'))) return;
+        try {
+            await window.electronAPI.deleteScreenshot(currentScreenshotsInstanceId, shot.filename);
+            currentScreenshots = currentScreenshots.filter((s) => s !== shot);
+            renderScreenshotsGrid();
+        } catch (err) {
+            showToast(err.message || t('screenshots.deleteFailed'), 'error');
+        }
+    } else if (e.target.closest('.screenshot-thumb')) {
+        window.electronAPI.openScreenshot(currentScreenshotsInstanceId, shot.filename);
+    }
+});
 
 openScreenshotsBtn.addEventListener('click', async () => {
     // Este botón vive dentro del modal de consola: si no se cierra antes,
@@ -53,8 +53,8 @@ openScreenshotsBtn.addEventListener('click', async () => {
     screenshotsModal.classList.add('active');
     screenshotsGrid.innerHTML = `<div class="empty-hint">${t('common.loading')}</div>`;
     try {
-        const shots = await window.electronAPI.listScreenshots(currentScreenshotsInstanceId);
-        renderScreenshotsGrid(shots);
+        currentScreenshots = await window.electronAPI.listScreenshots(currentScreenshotsInstanceId);
+        renderScreenshotsGrid();
     } catch (err) {
         screenshotsGrid.innerHTML = '';
         showToast(err.message || t('screenshots.loadFailed'), 'error');

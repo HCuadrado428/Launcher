@@ -171,14 +171,24 @@ function renderModpackLists() {
     sharedModpacksList.innerHTML = shared.length
         ? shared.map(p => modpackItemHtml(p, false)).join('')
         : `<div class="empty-hint">${t(emptySharedKey)}</div>`;
-
-    document.querySelectorAll('.manage-btn').forEach(btn => {
-        btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.isOwner === 'true'));
-    });
-    document.querySelectorAll('.select-btn').forEach(btn => {
-        btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
-    });
 }
+
+// Un solo listener por lista en vez de uno por botón en cada repintado.
+function handleModpackListClick(e) {
+    const manageBtn = e.target.closest('.manage-btn');
+    if (manageBtn) {
+        const d = manageBtn.dataset;
+        openModsModal(d.id, d.name, d.version, d.loader, d.isOwner === 'true');
+        return;
+    }
+    const selectBtn = e.target.closest('.select-btn');
+    if (selectBtn && !selectBtn.disabled) {
+        const d = selectBtn.dataset;
+        selectAndSyncModpack(d.id, d.name, d.version, d.loader, d.loaderVersion, selectBtn);
+    }
+}
+ownedModpacksList.addEventListener('click', handleModpackListClick);
+sharedModpacksList.addEventListener('click', handleModpackListClick);
 
 // Repintar toda la lista de tarjetas en cada pulsación no hace falta:
 // esperar un poco a que el usuario pare de teclear evita reconstruir el HTML

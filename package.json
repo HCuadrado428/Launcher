@@ -12,6 +12,9 @@
     "test": "node --test",
     "lint": "eslint ."
   },
+  "engines": {
+    "node": ">=22.12"
+  },
   "dependencies": {
     "@xmcl/core": "^2.15.1",
     "@xmcl/installer": "^6.1.2",
@@ -22,7 +25,7 @@
     "yazl": "^3.3.1"
   },
   "allowScripts": {
-    "electron@31.7.7": true,
+    "electron@43.1.0": true,
     "electron-winstaller@5.4.0": true
   },
   "devDependencies": {
@@ -36,7 +39,13 @@
     "productName": "Ember Launcher",
     "files": [
       "**/*",
-      "!**/*.map"
+      "!**/*.map",
+      "!test/**",
+      "!.github/**",
+      "!.claude/**",
+      "!eslint.config.js",
+      "!README.md",
+      "!dist/**"
     ],
     "directories": {
       "output": "dist"

@@ -1,8 +1,8 @@
 // --- Servidores favoritos ---
 // Solo local (no pasa por el backend, a diferencia de mods/config): cada
 // jugador guarda su propia lista de accesos directos a servidores por
-// instalación (vanilla o un modpack concreto), para no tener que volver a
-// escribir la IP cada vez que quiere jugar con amigos.
+// instalación (vanilla o un modpack concreto). "Entrar" abre el juego y
+// conecta directamente a ese servidor.
 
 async function currentInstanceIdForServers() {
     const cfg = await window.electronAPI.getConfig();
@@ -13,7 +13,8 @@ function favoriteServerItemHtml(server) {
     return `
         <div class="mod-item" data-id="${escapeHtml(server.id)}">
             <span>${escapeHtml(server.name)} · ${escapeHtml(server.address)}</span>
-            <button class="mod-item-update" data-id="${escapeHtml(server.id)}" data-address="${escapeHtml(server.address)}" title="${t('servers.copy')}">📋</button>
+            <button class="mod-item-join" data-address="${escapeHtml(server.address)}" title="${t('servers.join')}">▶</button>
+            <button class="mod-item-update" data-address="${escapeHtml(server.address)}" title="${t('servers.copy')}">📋</button>
             <button class="mod-item-remove" data-id="${escapeHtml(server.id)}" title="${t('servers.remove')}">&times;</button>
         </div>
     `;
@@ -25,27 +26,30 @@ async function refreshFavoriteServers() {
     favoriteServersList.innerHTML = servers.length
         ? servers.map(favoriteServerItemHtml).join('')
         : `<div class="empty-hint">${t('servers.empty')}</div>`;
-
-    favoriteServersList.querySelectorAll('.mod-item-update').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            if (navigator.clipboard) {
-                await navigator.clipboard.writeText(btn.dataset.address);
-                showToast(t('servers.copied'), 'info');
-            }
-        });
-    });
-    favoriteServersList.querySelectorAll('.mod-item-remove').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-            try {
-                const instanceId = await currentInstanceIdForServers();
-                await window.electronAPI.removeFavoriteServer(instanceId, btn.dataset.id);
-                await refreshFavoriteServers();
-            } catch (err) {
-                showToast(err.message || t('servers.removeFailed'), 'error');
-            }
-        });
-    });
 }
+
+favoriteServersList.addEventListener('click', async (e) => {
+    const joinBtn = e.target.closest('.mod-item-join');
+    const copyBtn = e.target.closest('.mod-item-update');
+    const removeBtn = e.target.closest('.mod-item-remove');
+    if (joinBtn) {
+        if (playBtn.disabled) {
+            showToast(t('servers.gameAlreadyRunning'), 'warning');
+            return;
+        }
+        startGame({ server: joinBtn.dataset.address });
+    } else if (copyBtn && navigator.clipboard) {
+        await navigator.clipboard.writeText(copyBtn.dataset.address);
+        showToast(t('servers.copied'), 'info');
+    } else if (removeBtn) {
+        try {
+            await window.electronAPI.removeFavoriteServer(await currentInstanceIdForServers(), removeBtn.dataset.id);
+            await refreshFavoriteServers();
+        } catch (err) {
+            showToast(err.message || t('servers.removeFailed'), 'error');
+        }
+    }
+});
 
 addFavoriteServerBtn.addEventListener('click', async () => {
     const name = newServerName.value.trim();
@@ -56,8 +60,7 @@ addFavoriteServerBtn.addEventListener('click', async () => {
     }
     addFavoriteServerBtn.disabled = true;
     try {
-        const instanceId = await currentInstanceIdForServers();
-        await window.electronAPI.addFavoriteServer(instanceId, name, address);
+        await window.electronAPI.addFavoriteServer(await currentInstanceIdForServers(), name, address);
         newServerName.value = '';
         newServerAddress.value = '';
         await refreshFavoriteServers();

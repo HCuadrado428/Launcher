@@ -632,6 +632,17 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 .toast.error { background: var(--danger); }
 .toast.info { background: #2e3d4d; }
 .toast.warning { background: #8a5a12; }
+.toast-action {
+    display: block;
+    width: auto;
+    margin-top: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+    background: #ffffff26;
+    color: white;
+    border-radius: 6px;
+}
+.toast-action:hover { background: #ffffff40; }
 
 .hint-warning { color: #e8a33d; }
 @keyframes toast-in {
@@ -882,7 +893,8 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     line-height: 1;
 }
 .mod-item-remove:hover { background: var(--surface-hover); }
-.mod-item-update {
+.mod-item-update,
+.mod-item-join {
     width: auto;
     background: none;
     color: var(--accent);
@@ -891,7 +903,8 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     line-height: 1;
     border-radius: 6px;
 }
-.mod-item-update:hover { background: var(--surface-hover); }
+.mod-item-update:hover,
+.mod-item-join:hover { background: var(--surface-hover); }
 .mod-item-update:disabled { opacity: 0.5; }
 .mod-item-badge {
     font-size: 10px;

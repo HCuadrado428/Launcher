@@ -1,14 +1,35 @@
 // --- Jugar / detener ---
 
-playBtn.addEventListener('click', () => {
-    const javaPath = javaPathInput.value;
+// Mientras se prepara el lanzamiento de un modpack, el proceso principal lo
+// sincroniza (y puede tener que descargar mods, el loader o Java): se enseña
+// ese progreso en la misma barra en vez de un "Preparando..." fijo.
+let removeLaunchSyncListener = null;
+
+function stopFollowingLaunchSync() {
+    if (removeLaunchSyncListener) {
+        removeLaunchSyncListener();
+        removeLaunchSyncListener = null;
+    }
+}
+
+// extra.server: dirección a la que entrar directamente al abrir el juego
+// (botón "Entrar" de los servidores favoritos).
+function startGame(extra = {}) {
     const maxGb = parseInt(ramSlider.value, 10);
     const minGb = Math.max(1, Math.round(maxGb / 2));
 
+    stopFollowingLaunchSync();
+    removeLaunchSyncListener = window.electronAPI.onModpackSyncProgress((data) => {
+        progressWrap.style.display = 'block';
+        progressFill.style.width = `${data.percent || 0}%`;
+        progressLabel.innerText = data.label || t('main.progress.preparing');
+    });
+
     window.electronAPI.launchGame({
-        javaPath,
+        javaPath: javaPathInput.value,
         memory: { max: maxGb + 'G', min: minGb + 'G' },
-        customArgs: customJvmArgsInput.value
+        customArgs: customJvmArgsInput.value,
+        ...extra
     });
 
     playBtn.innerText = t('main.playStarting');
@@ -21,7 +42,9 @@ playBtn.addEventListener('click', () => {
 
     gameLogLines = [];
     consoleLogBox.innerText = '';
-});
+}
+
+playBtn.addEventListener('click', () => startGame());
 
 // El proceso principal confirma con un 'stopped' cuando el juego se ha
 // cerrado de verdad (o cuando ha cancelado un lanzamiento que todavía se
@@ -35,6 +58,7 @@ stopBtn.addEventListener('click', () => {
 });
 
 function resetToIdle() {
+    stopFollowingLaunchSync();
     playBtn.innerText = t('main.play');
     playBtn.disabled = false;
     stopBtn.disabled = true;
@@ -57,15 +81,29 @@ window.electronAPI.onGameStatus((data) => {
         updateActiveModpackLabel(null);
         resetToIdle();
     } else if (data.type === 'launched') {
+        stopFollowingLaunchSync();
         playBtn.innerText = t('main.playStarted');
         progressWrap.style.display = 'none';
     } else if (data.type === 'closed' || data.type === 'stopped') {
         resetToIdle();
+        if (data.type === 'closed' && data.code !== 0 && data.code !== undefined) showCrashToast(data);
         window.electronAPI.getConfig().then((cfg) => {
             updatePlaytimeLabel(cfg && cfg.activeModpack ? cfg.activeModpack.id : null);
         });
     }
 });
+
+// Tras un cierre con error: una pista concreta si el proceso principal
+// reconoció la causa en el log (claves crash.hint.*), y un botón para abrir
+// el crash log guardado.
+function showCrashToast(data) {
+    const hintKey = data.crashHint ? `crash.hint.${data.crashHint}` : null;
+    const message = hintKey && t(hintKey) !== hintKey ? t(hintKey) : t('crash.generic', { code: data.code });
+    const action = data.hasCrashLog
+        ? { label: t('crash.openLog'), onClick: () => window.electronAPI.openLastCrashLog() }
+        : null;
+    showToast(message, 'warning', action);
+}
 
 // minecraft-launcher-core emite dos tipos de evento de progreso distintos y
 // NO hay que tratarlos igual:

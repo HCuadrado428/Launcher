@@ -30,33 +30,6 @@ async function runModrinthSearch() {
         modrinthResults.innerHTML = hits.length
             ? hits.map(modrinthResultHtml).join('')
             : `<div class="empty-hint">${t('modal.modrinth.empty')}</div>`;
-
-        modrinthResults.querySelectorAll('.modrinth-add-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const originalText = btn.innerText;
-                btn.disabled = true;
-                btn.innerText = '...';
-                try {
-                    const result = await window.electronAPI.addModFromModrinth(
-                        currentModsModalId,
-                        btn.dataset.projectId,
-                        currentModsModalMcVersion,
-                        currentModsModalLoader,
-                        currentModsModalType
-                    );
-                    showToast(t('toast.modrinthAdded'), 'info');
-                    if (result && result.missing_dependencies && result.missing_dependencies.length) {
-                        showToast(t('modal.modrinth.missingDependencies', { names: result.missing_dependencies.join(', ') }), 'warning');
-                    }
-                    await reloadModsList();
-                } catch (err) {
-                    showToast(err.message || t('toast.modrinthAddFailed'), 'error');
-                } finally {
-                    btn.disabled = false;
-                    btn.innerText = originalText;
-                }
-            });
-        });
     } catch (err) {
         modrinthResults.innerHTML = '';
         showToast(err.message || t('toast.modrinthSearchFailed'), 'error');
@@ -64,6 +37,33 @@ async function runModrinthSearch() {
         modrinthSearchBtn.disabled = false;
     }
 }
+
+modrinthResults.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.modrinth-add-btn');
+    if (!btn || btn.disabled) return;
+    const originalText = btn.innerText;
+    btn.disabled = true;
+    btn.innerText = '...';
+    try {
+        const result = await window.electronAPI.addModFromModrinth(
+            currentModsModalId,
+            btn.dataset.projectId,
+            currentModsModalMcVersion,
+            currentModsModalLoader,
+            currentModsModalType
+        );
+        showToast(t('toast.modrinthAdded'), 'info');
+        if (result && result.missing_dependencies && result.missing_dependencies.length) {
+            showToast(t('modal.modrinth.missingDependencies', { names: result.missing_dependencies.join(', ') }), 'warning');
+        }
+        await reloadModsList();
+    } catch (err) {
+        showToast(err.message || t('toast.modrinthAddFailed'), 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    }
+});
 
 modrinthSearchBtn.addEventListener('click', runModrinthSearch);
 modrinthSearchInput.addEventListener('keydown', (e) => {

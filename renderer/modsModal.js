@@ -86,26 +86,6 @@ async function loadInvitesAndAccess() {
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.access.noInvites')}</div>`;
-        invitesList.querySelectorAll('.mod-item-update').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const url = `milauncher://invite/${btn.dataset.token}`;
-                if (navigator.clipboard) {
-                    await navigator.clipboard.writeText(url);
-                    showToast(t('toast.inviteCopied'), 'info');
-                }
-            });
-        });
-        invitesList.querySelectorAll('.mod-item-remove').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                try {
-                    await window.electronAPI.revokeInvite(currentModsModalId, btn.dataset.token);
-                    showToast(t('modal.access.inviteRevoked'), 'info');
-                    await loadInvitesAndAccess();
-                } catch (err) {
-                    showToast(err.message || t('modal.access.revokeFailed'), 'error');
-                }
-            });
-        });
 
         accessList.innerHTML = accessUsers.length
             ? accessUsers.map(u => `
@@ -115,17 +95,6 @@ async function loadInvitesAndAccess() {
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.access.noAccess')}</div>`;
-        accessList.querySelectorAll('.mod-item-remove').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                try {
-                    await window.electronAPI.revokeModpackAccess(currentModsModalId, btn.dataset.uuid);
-                    showToast(t('modal.access.accessRevoked'), 'info');
-                    await loadInvitesAndAccess();
-                } catch (err) {
-                    showToast(err.message || t('modal.access.revokeFailed'), 'error');
-                }
-            });
-        });
     } catch (err) {
         showToast(err.message || t('modal.access.loadFailed'), 'error');
     }
@@ -142,23 +111,6 @@ async function loadVersionHistory() {
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.versions.empty')}</div>`;
-        versionsList.querySelectorAll('[data-restore]').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const confirmed = confirm(t('modal.versions.restoreConfirm'));
-                if (!confirmed) return;
-                try {
-                    const result = await window.electronAPI.restoreModpackVersion(currentModsModalId, btn.dataset.versionId);
-                    showToast(t('modal.versions.restored'), 'info');
-                    if (result && result.skipped_files && result.skipped_files.length) {
-                        showToast(t('modal.versions.skippedFiles', { names: result.skipped_files.join(', ') }), 'warning');
-                    }
-                    await reloadModsList();
-                    await loadVersionHistory();
-                } catch (err) {
-                    showToast(err.message || t('modal.versions.restoreFailed'), 'error');
-                }
-            });
-        });
     } catch (err) {
         showToast(err.message || t('modal.versions.loadFailed'), 'error');
     }
@@ -205,55 +157,99 @@ function renderModsList() {
                 <span>${escapeHtml(mod.filename)}${mod.optional ? ` <span class="mod-item-badge">${t('modal.mods.optionalBadge')}</span>` : ''}</span>
                 ${optionalToggle}
                 ${currentModsModalIsOwner && mod.source === 'modrinth' ? `<button class="mod-item-update" data-mod-id="${escapeHtml(mod.id)}" title="${t('modal.mods.checkUpdate')}">↻</button>` : ''}
-                ${currentModsModalIsOwner ? `<button class="mod-item-remove" data-mod-id="${escapeHtml(mod.id)}" title="Quitar">&times;</button>` : ''}
+                ${currentModsModalIsOwner ? `<button class="mod-item-remove" data-mod-id="${escapeHtml(mod.id)}" title="${t('modal.mods.remove')}">&times;</button>` : ''}
             </div>
         `;
         }).join('')
         : `<div class="empty-hint">${t(emptyKey)}</div>`;
-
-    modsList.querySelectorAll('.mod-item-remove').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            try {
-                await window.electronAPI.removeModFromModpack(currentModsModalId, btn.dataset.modId);
-                showToast(t('toast.modRemoved'), 'info');
-                await reloadModsList();
-            } catch (err) {
-                showToast(err.message || t('toast.modRemoveFailed'), 'error');
-            }
-        });
-    });
-
-    modsList.querySelectorAll('.mod-item-update').forEach(btn => {
-        btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            try {
-                const result = await window.electronAPI.checkModUpdate(currentModsModalId, btn.dataset.modId);
-                showToast(
-                    result.has_update
-                        ? t('modal.mods.updateAvailable', { version: result.latest_version_number || '' })
-                        : t('modal.mods.upToDate'),
-                    result.has_update ? 'info' : 'info'
-                );
-            } catch (err) {
-                showToast(err.message || t('modal.mods.updateCheckFailed'), 'error');
-            } finally {
-                btn.disabled = false;
-            }
-        });
-    });
-
-    modsList.querySelectorAll('.mod-item-optional-checkbox').forEach(cb => {
-        cb.addEventListener('change', async () => {
-            currentOptionalChoices = { ...currentOptionalChoices, [cb.dataset.modId]: cb.checked };
-            try {
-                await window.electronAPI.setOptionalModChoice(currentModsModalId, cb.dataset.modId, cb.checked);
-                showToast(t('modal.mods.optionalChoiceSaved'), 'info');
-            } catch (err) {
-                showToast(err.message || t('modal.mods.optionalChoiceFailed'), 'error');
-            }
-        });
-    });
 }
+
+// Un solo listener por lista (delegación de eventos): las listas se repintan
+// enteras a menudo, y antes cada repintado volvía a enganchar un listener a
+// cada botón.
+
+invitesList.addEventListener('click', async (e) => {
+    const copyBtn = e.target.closest('.mod-item-update');
+    const revokeBtn = e.target.closest('.mod-item-remove');
+    if (copyBtn && navigator.clipboard) {
+        await navigator.clipboard.writeText(`milauncher://invite/${copyBtn.dataset.token}`);
+        showToast(t('toast.inviteCopied'), 'info');
+    } else if (revokeBtn) {
+        try {
+            await window.electronAPI.revokeInvite(currentModsModalId, revokeBtn.dataset.token);
+            showToast(t('modal.access.inviteRevoked'), 'info');
+            await loadInvitesAndAccess();
+        } catch (err) {
+            showToast(err.message || t('modal.access.revokeFailed'), 'error');
+        }
+    }
+});
+
+accessList.addEventListener('click', async (e) => {
+    const revokeBtn = e.target.closest('.mod-item-remove');
+    if (!revokeBtn) return;
+    try {
+        await window.electronAPI.revokeModpackAccess(currentModsModalId, revokeBtn.dataset.uuid);
+        showToast(t('modal.access.accessRevoked'), 'info');
+        await loadInvitesAndAccess();
+    } catch (err) {
+        showToast(err.message || t('modal.access.revokeFailed'), 'error');
+    }
+});
+
+versionsList.addEventListener('click', async (e) => {
+    const restoreBtn = e.target.closest('[data-restore]');
+    if (!restoreBtn || !confirm(t('modal.versions.restoreConfirm'))) return;
+    try {
+        const result = await window.electronAPI.restoreModpackVersion(currentModsModalId, restoreBtn.dataset.versionId);
+        showToast(t('modal.versions.restored'), 'info');
+        if (result && result.skipped_files && result.skipped_files.length) {
+            showToast(t('modal.versions.skippedFiles', { names: result.skipped_files.join(', ') }), 'warning');
+        }
+        await reloadModsList();
+        await loadVersionHistory();
+    } catch (err) {
+        showToast(err.message || t('modal.versions.restoreFailed'), 'error');
+    }
+});
+
+modsList.addEventListener('click', async (e) => {
+    const removeBtn = e.target.closest('.mod-item-remove');
+    const updateBtn = e.target.closest('.mod-item-update');
+    if (removeBtn) {
+        try {
+            await window.electronAPI.removeModFromModpack(currentModsModalId, removeBtn.dataset.modId);
+            showToast(t('toast.modRemoved'), 'info');
+            await reloadModsList();
+        } catch (err) {
+            showToast(err.message || t('toast.modRemoveFailed'), 'error');
+        }
+    } else if (updateBtn) {
+        updateBtn.disabled = true;
+        try {
+            const result = await window.electronAPI.checkModUpdate(currentModsModalId, updateBtn.dataset.modId);
+            showToast(result.has_update
+                ? t('modal.mods.updateAvailable', { version: result.latest_version_number || '' })
+                : t('modal.mods.upToDate'), 'info');
+        } catch (err) {
+            showToast(err.message || t('modal.mods.updateCheckFailed'), 'error');
+        } finally {
+            updateBtn.disabled = false;
+        }
+    }
+});
+
+modsList.addEventListener('change', async (e) => {
+    const cb = e.target.closest('.mod-item-optional-checkbox');
+    if (!cb) return;
+    currentOptionalChoices = { ...currentOptionalChoices, [cb.dataset.modId]: cb.checked };
+    try {
+        await window.electronAPI.setOptionalModChoice(currentModsModalId, cb.dataset.modId, cb.checked);
+        showToast(t('modal.mods.optionalChoiceSaved'), 'info');
+    } catch (err) {
+        showToast(err.message || t('modal.mods.optionalChoiceFailed'), 'error');
+    }
+});
 
 async function reloadModsList() {
     if (!currentModsModalId) return;

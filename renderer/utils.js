@@ -16,12 +16,24 @@ function formatBytes(bytes) {
     return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function showToast(message, type) {
+// action (opcional): { label, onClick } añade un botón al aviso, que dura
+// más para dar tiempo a pulsarlo.
+function showToast(message, type, action) {
     const el = document.createElement('div');
     el.className = 'toast ' + (type || 'info');
     el.innerText = message;
+    if (action) {
+        const btn = document.createElement('button');
+        btn.className = 'toast-action';
+        btn.innerText = action.label;
+        btn.addEventListener('click', () => {
+            action.onClick();
+            el.remove();
+        });
+        el.appendChild(btn);
+    }
     toastWrap.appendChild(el);
-    setTimeout(() => el.remove(), 5000);
+    setTimeout(() => el.remove(), action ? 12000 : 5000);
 }
 
 function showScreen(id) {

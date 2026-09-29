@@ -1,10 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const { fetchJavaRuntimeManifest, installJavaRuntimeTask } = require('@xmcl/installer');
+const crypto = require('crypto');
+const { installJavaRuntimeTask } = require('@xmcl/installer');
+const { fetchWithTimeout } = require('./httpUtils');
 const { VANILLA_ROOT } = require('./paths');
 const { findNewestJava } = require('./java');
 const { getJavaRequirementForVersion } = require('./mojang');
 const { createSingleFlight } = require('./instanceLock');
+const { tm } = require('./i18nMain');
 
 // ============================================================================
 // JAVA AUTOMÁTICO (runtimes oficiales de Mojang)
@@ -36,9 +39,47 @@ function isRuntimeInstalled(component) {
     return fs.existsSync(path.join(runtimeDir(component), MARKER_FILE)) && fs.existsSync(runtimeExecutablePath(component));
 }
 
-async function installRuntime(component, onProgress) {
+const RUNTIME_INDEX_URL = 'https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json';
+
+// Clave de plataforma del índice de runtimes de Mojang.
+function runtimePlatformKey() {
+    if (process.platform === 'win32') {
+        if (process.arch === 'arm64') return 'windows-arm64';
+        return process.arch === 'ia32' ? 'windows-x86' : 'windows-x64';
+    }
+    if (process.platform === 'darwin') return process.arch === 'arm64' ? 'mac-os-arm64' : 'mac-os';
+    return process.arch === 'ia32' ? 'linux-i386' : 'linux';
+}
+
+async function fetchText(url) {
+    const res = await fetchWithTimeout(url, {}, 30000);
+    if (!res.ok) throw new Error(tm('sys.serverStatus', { status: res.status }));
+    return res.text();
+}
+
+// Índice de runtimes → manifiesto (lista de archivos) del runtime pedido.
+// No se usa fetchJavaRuntimeManifest de @xmcl/installer porque con la
+// versión de undici que trae no funciona ("invalid throwOnError"). El sha1
+// del manifiesto viene en el índice y se comprueba antes de usarlo.
+async function fetchRuntimeManifest(component, indexUrl) {
+    const index = JSON.parse(await fetchText(indexUrl || RUNTIME_INDEX_URL));
+    const targets = (index[runtimePlatformKey()] || {})[component] || [];
+    if (targets.length === 0) throw new Error(tm('sys.noRuntimeForPlatform', { component }));
+
+    const target = targets[0];
+    const manifestText = await fetchText(target.manifest.url);
+    const manifestSha1 = crypto.createHash('sha1').update(manifestText).digest('hex');
+    if (target.manifest.sha1 && manifestSha1 !== target.manifest.sha1) {
+        throw new Error(tm('sys.runtimeManifestCorrupt', { component }));
+    }
+    return { files: JSON.parse(manifestText).files, target: component, version: target.version };
+}
+
+// indexUrl solo se usa en los tests (un servidor local con el mismo formato
+// que el índice de Mojang); en la app siempre es el oficial.
+async function installRuntime(component, onProgress, indexUrl) {
     const destination = runtimeDir(component);
-    const manifest = await fetchJavaRuntimeManifest({ target: component });
+    const manifest = await fetchRuntimeManifest(component, indexUrl);
     const task = installJavaRuntimeTask({ destination, manifest });
     await task.startAndWait({
         onUpdate: () => {
@@ -69,9 +110,9 @@ async function installRuntime(component, onProgress) {
 // runtime comparten una sola descarga.
 const joinInstall = createSingleFlight();
 
-async function ensureJavaRuntime(component, onProgress) {
+async function ensureJavaRuntime(component, onProgress, { indexUrl } = {}) {
     if (!isRuntimeInstalled(component)) {
-        await joinInstall(component, () => installRuntime(component, onProgress));
+        await joinInstall(component, () => installRuntime(component, onProgress, indexUrl));
     }
     return runtimeExecutablePath(component);
 }
