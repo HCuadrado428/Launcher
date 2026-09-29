@@ -28,8 +28,7 @@ function normalizeServerAddress(address) {
 }
 
 // Entrar directamente a un servidor al abrir el juego. Desde 1.20 Minecraft
-// usa --quickPlayMultiplayer; antes, los viejos --server/--port (el tipo
-// "legacy" de minecraft-launcher-core).
+// usa --quickPlayMultiplayer; antes, los viejos --server/--port ("legacy").
 function quickPlayForServer(address, mcVersion) {
     const identifier = normalizeServerAddress(address);
     if (!identifier) return null;

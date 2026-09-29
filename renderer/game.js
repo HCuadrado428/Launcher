@@ -105,25 +105,15 @@ function showCrashToast(data) {
     showToast(message, 'warning', action);
 }
 
-// minecraft-launcher-core emite dos tipos de evento de progreso distintos y
-// NO hay que tratarlos igual:
-//  - "progress" trae { type, task, total } -> progreso ESTABLE por categoría.
-//    Siempre avanza hacia adelante. Esta es la que mueve la barra.
-//  - "download-status" trae { name, type, current, total } -> progreso de UN
-//    archivo individual. Se resetea a 0 en cada archivo nuevo, así que solo
-//    la usamos para mostrar qué archivo se está descargando ahora mismo.
+// Progreso de lo que se prepara antes de abrir el juego (instalar la
+// versión, descargar Java...): { type, task, total }, donde type ya viene
+// traducido del proceso principal.
 window.electronAPI.onGameProgress((data) => {
     progressWrap.style.display = 'block';
-
-    if (data.task !== undefined) {
-        const total = data.total || 0;
-        const percent = total > 0 ? Math.min(100, Math.round((data.task / total) * 100)) : 0;
-        progressFill.style.width = percent + '%';
-        progressLabel.innerText = `${data.type || t('main.progress.preparing')}... ${percent}%`;
-    } else if (data.current !== undefined) {
-        const fileName = data.name ? data.name.split(/[\\/]/).pop() : (data.type || 'archivo');
-        progressLabel.innerText = `${fileName}...`;
-    }
+    const total = data.total || 0;
+    const percent = total > 0 ? Math.min(100, Math.round((data.task / total) * 100)) : 0;
+    progressFill.style.width = percent + '%';
+    progressLabel.innerText = `${data.type || t('main.progress.preparing')}... ${percent}%`;
 });
 
 // --- Consola del juego ---

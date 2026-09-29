@@ -26,8 +26,9 @@ function runtimeDir(component) {
     return path.join(RUNTIME_ROOT, component);
 }
 
-// Se usa java y no javaw: minecraft-launcher-core comprueba la versión con
-// "<java> -version" leyendo su salida, y javaw no la escribe.
+// Se usa java y no javaw: getInstalledJavaMajor comprueba la versión con
+// "<java> -version" leyendo su salida, y javaw no la escribe. El juego se
+// lanza con windowsHide, así que no aparece ninguna consola.
 function runtimeExecutablePath(component) {
     const dir = runtimeDir(component);
     if (process.platform === 'win32') return path.join(dir, 'bin', 'java.exe');

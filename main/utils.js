@@ -79,22 +79,11 @@ function assertSafePathSegment(value, what) {
     return String(value);
 }
 
-// minecraft-launcher-core escribe en su log de depuración la línea de
-// comandos completa del juego, access token de Microsoft incluido. Ese log
-// acaba en la consola y en los crash logs que la gente comparte para pedir
-// ayuda, así que se tapa antes de guardarlo en ningún sitio.
+// La línea de comandos del juego (y a veces su propia salida) lleva el
+// access token de Microsoft. Lo que acaba en la consola, en launcher.log y
+// en los crash logs que la gente comparte para pedir ayuda se tapa antes.
 function redactSecrets(text) {
     return String(text).replace(/(--accessToken[\s,=]+)[^\s,\]]+/gi, '$1***');
-}
-
-// launch() de minecraft-launcher-core nunca lanza: si algo falla, lo cuenta
-// en un evento "debug" y devuelve null. Esto saca el motivo de esa línea
-// para poder enseñárselo al usuario.
-const MCLC_LAUNCH_FAILURE_RE = /^\[MCLC\]: (?:Couldn't start Minecraft due to:?|Failed to start due to)\s*(.+?)(?:, closing\.\.\.)?$/s;
-
-function parseMclcLaunchFailure(debugLine) {
-    const match = MCLC_LAUNCH_FAILURE_RE.exec(String(debugLine).trim());
-    return match ? match[1].trim() : null;
 }
 
 // Escribe un archivo de forma atómica: primero a un temporal (con fsync) y
@@ -153,7 +142,6 @@ module.exports = {
     isSafePathSegment,
     assertSafePathSegment,
     redactSecrets,
-    parseMclcLaunchFailure,
     writeFileAtomicSync,
     formatBytesMain,
     getFreeDiskSpaceBytes

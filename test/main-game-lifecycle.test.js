@@ -1,7 +1,7 @@
-// Ciclo de vida de una partida en main.js (launch-game / stop-game y el
-// evento 'close' de minecraft-launcher-core). main.js solo se puede cargar
-// dentro de Electron, así que aquí se simulan 'electron', el lanzador
-// (minecraft-launcher-core) y las librerías que tiran de Electron, y se
+// Ciclo de vida de una partida (launch-game / stop-game y el cierre del
+// juego). main.js solo se puede cargar dentro de Electron, así que aquí se
+// simulan 'electron', el lanzamiento real (main/gameLauncher.js) y las
+// librerías que tiran de Electron, y se
 // observa qué estados le llegan a la ventana ('game-status').
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -76,32 +76,33 @@ const fakeElectron = {
     safeStorage: { isEncryptionAvailable: () => false }
 };
 
-class FakeLauncher extends EventEmitter {
-    constructor() {
-        super();
-        this.launchCalls = 0;
-        this.launchImpl = async () => null;
-    }
-    launch(opts) {
-        this.launchCalls++;
-        return this.launchImpl(opts);
-    }
+// El lanzamiento real (@xmcl) se sustituye por uno falso: se usan las
+// funciones puras de verdad de main/gameLauncher.js, pero startMinecraft
+// devuelve un proceso simulado y no se instala nada.
+const fakeGame = {
+    startCalls: 0,
+    lastOptions: null,
+    startImpl: async () => { throw new Error('sin implementar'); }
+};
+
+function fakeGameProcess() {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    const watcher = new EventEmitter();
+    child.killed = false;
+    child.kill = () => {
+        child.killed = true;
+        // Como en la realidad: matar el proceso da código 1 en Windows.
+        setImmediate(() => watcher.emit('minecraft-exit', { code: 1, signal: null, crashReport: '' }));
+    };
+    return { child, watcher };
 }
-let fakeLauncher = null;
 
 const fakeModules = {
     electron: fakeElectron,
     'electron-updater': { autoUpdater: {} },
-    msmc: { Auth: null },
-    'minecraft-launcher-core': {
-        Client: class {
-            constructor() {
-                fakeLauncher = new FakeLauncher();
-                return fakeLauncher;
-            }
-        },
-        Authenticator: { getAuth: (name) => ({ name }) }
-    }
+    msmc: { Auth: null }
 };
 
 // Sin red: Mojang y el backend "no responden", así que vanilla cae a la
@@ -115,6 +116,18 @@ globalThis.fetch = async () => {
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
     if (Object.prototype.hasOwnProperty.call(fakeModules, request)) return fakeModules[request];
+    if (request === './gameLauncher') {
+        const real = originalLoad.apply(this, arguments);
+        return {
+            ...real,
+            ensureVersionInstalled: async () => {},
+            startMinecraft: (options) => {
+                fakeGame.startCalls++;
+                fakeGame.lastOptions = options;
+                return fakeGame.startImpl(options);
+            }
+        };
+    }
     return originalLoad.apply(this, arguments);
 };
 try {
@@ -146,17 +159,6 @@ function launch(javaPath = '/usr/lib/jvm/java-21/bin/java', extra = {}) {
     ipcListeners.get('launch-game')({}, { javaPath, memory: { max: '4G', min: '2G' }, customArgs: '', ...extra });
 }
 
-function fakeGameProcess() {
-    const child = new EventEmitter();
-    child.killed = false;
-    child.kill = () => {
-        child.killed = true;
-        // Como en la realidad: matar el proceso da código 1 en Windows.
-        setImmediate(() => fakeLauncher.emit('close', 1));
-    };
-    return child;
-}
-
 test.before(async () => {
     // Deja que app.whenReady() cree la ventana (falsa) y hace login offline.
     await tick();
@@ -167,52 +169,58 @@ beforeEach(() => {
     sentStatuses.length = 0;
     notifications.length = 0;
     fetchDelayMs = 0;
-    fakeLauncher.launchCalls = 0;
+    fakeGame.startCalls = 0;
+    fakeGame.lastOptions = null;
     fs.rmSync(crashLogsDir, { recursive: true, force: true });
 });
 
-test('si launch() devuelve null, se avisa con el motivo en vez de quedarse en "Juego iniciado"', async () => {
-    fakeLauncher.launchImpl = async () => {
-        // Lo que hace minecraft-launcher-core cuando Java no arranca.
-        fakeLauncher.emit('debug', "[MCLC]: Couldn't start Minecraft due to: Error: java no responde");
-        fakeLauncher.emit('close', 1);
-        return null;
-    };
+test('si Minecraft no arranca, se avisa con el motivo en vez de quedarse en "Juego iniciado"', async () => {
+    fakeGame.startImpl = async () => { throw new Error('java no responde'); };
     launch();
     await waitFor(() => statusTypes().includes('error'), 'estado error');
 
     assert.ok(!statusTypes().includes('launched'));
-    assert.ok(!statusTypes().includes('closed'), "el 'close' de un juego que nunca arrancó se ignora");
-    const error = sentStatuses.find((s) => s.type === 'error');
-    assert.match(error.message, /java no responde/);
+    assert.match(sentStatuses.find((s) => s.type === 'error').message, /java no responde/);
     assert.deepEqual(crashLogFiles(), []);
     assert.deepEqual(notifications, []);
 });
 
+test('una cuenta offline lanza con el UUID de siempre (el de minecraft-launcher-core)', async () => {
+    fakeGame.startImpl = async () => { throw new Error('parar aquí'); };
+    launch();
+    await waitFor(() => fakeGame.lastOptions !== null, 'llamada a startMinecraft');
+    const { legacyOfflineUuid } = require('../main/gameLauncher');
+    assert.equal(fakeGame.lastOptions.gameProfile.name, 'Steve');
+    assert.equal(fakeGame.lastOptions.gameProfile.id, legacyOfflineUuid('Steve'));
+    assert.equal(fakeGame.lastOptions.userType, 'legacy');
+    assert.equal(fakeGame.lastOptions.maxMemory, 4096);
+    await waitFor(() => statusTypes().includes('error'), 'fin del lanzamiento');
+});
+
 test('"Detener" cierra el juego sin guardar crash log ni avisar de un cierre inesperado', async () => {
-    const child = fakeGameProcess();
-    fakeLauncher.launchImpl = async () => child;
+    const proc = fakeGameProcess();
+    fakeGame.startImpl = async () => proc;
     launch();
     await waitFor(() => statusTypes().includes('launched'), 'estado launched');
 
     ipcListeners.get('stop-game')();
     await waitFor(() => statusTypes().includes('stopped'), 'estado stopped');
 
-    assert.ok(child.killed);
+    assert.ok(proc.child.killed);
     assert.ok(!statusTypes().includes('closed'));
     assert.deepEqual(crashLogFiles(), []);
     assert.deepEqual(notifications, []);
 });
 
 test('un cierre con error de verdad sí guarda crash log (con el token tapado y el buffer limitado)', async () => {
-    const child = fakeGameProcess();
-    fakeLauncher.launchImpl = async () => child;
+    const proc = fakeGameProcess();
+    fakeGame.startImpl = async () => proc;
     launch();
     await waitFor(() => statusTypes().includes('launched'), 'estado launched');
 
-    fakeLauncher.emit('data', 'arrancando con --accessToken secreto123 --version 1.21\n');
-    for (let i = 0; i < 6000; i++) fakeLauncher.emit('data', `línea ${i}\n`);
-    fakeLauncher.emit('close', 1);
+    proc.child.stdout.emit('data', Buffer.from('arrancando con --accessToken secreto123 --version 1.21\n'));
+    for (let i = 0; i < 6000; i++) proc.child.stdout.emit('data', Buffer.from(`línea ${i}\n`));
+    proc.watcher.emit('minecraft-exit', { code: 1, signal: null, crashReport: '---- Minecraft Crash Report ----\nDescripción del crash' });
     await waitFor(() => statusTypes().includes('closed'), 'estado closed');
 
     const files = crashLogFiles();
@@ -222,62 +230,65 @@ test('un cierre con error de verdad sí guarda crash log (con el token tapado y 
     assert.ok(!log.includes('secreto123'), 'el access token no debe acabar en el crash log');
     assert.ok(log.includes('línea 5999'));
     assert.ok(!log.includes('línea 999\n'), 'solo se guardan las últimas salidas');
+    assert.ok(log.includes('Minecraft Crash Report'), 'el informe de crash del juego se adjunta');
     assert.equal(notifications.length, 1);
 });
 
 test('el aviso de crash incluye una pista cuando reconoce la causa', async () => {
-    const child = fakeGameProcess();
-    fakeLauncher.launchImpl = async () => child;
+    const proc = fakeGameProcess();
+    fakeGame.startImpl = async () => proc;
     launch();
     await waitFor(() => statusTypes().includes('launched'), 'estado launched');
 
-    fakeLauncher.emit('data', 'Exception in thread "main" java.lang.OutOfMemoryError: Java heap space\n');
-    fakeLauncher.emit('close', 1);
+    proc.child.stderr.emit('data', Buffer.from('Exception in thread "main" java.lang.OutOfMemoryError: Java heap space\n'));
+    proc.watcher.emit('minecraft-exit', { code: 1, signal: null, crashReport: '' });
     await waitFor(() => statusTypes().includes('closed'), 'estado closed');
     assert.equal(sentStatuses.find((s) => s.type === 'closed').crashHint, 'outOfMemory');
 });
 
 test('"Entrar" en un servidor favorito pasa quickPlay al lanzador', async () => {
-    let receivedOpts = null;
-    fakeLauncher.launchImpl = async (opts) => { receivedOpts = opts; return null; };
+    fakeGame.startImpl = async () => { throw new Error('parar aquí'); };
     launch(undefined, { server: 'play.example.com:25570' });
-    await waitFor(() => receivedOpts !== null, 'llamada a launch()');
+    await waitFor(() => fakeGame.lastOptions !== null, 'llamada a startMinecraft');
     // Sin red la versión cae a la de respaldo (1.20.1), que ya usa quickPlay.
-    assert.deepEqual(receivedOpts.quickPlay, { type: 'multiplayer', identifier: 'play.example.com:25570' });
+    assert.equal(fakeGame.lastOptions.quickPlayMultiplayer, 'play.example.com:25570');
+    await waitFor(() => statusTypes().includes('error'), 'fin del primer lanzamiento');
 
-    receivedOpts = null;
+    fakeGame.lastOptions = null;
     sentStatuses.length = 0;
     launch(undefined, { server: '--demo' });
-    await waitFor(() => receivedOpts !== null, 'segunda llamada a launch()');
-    assert.equal(receivedOpts.quickPlay, undefined, 'una dirección inválida se ignora');
+    await waitFor(() => fakeGame.lastOptions !== null, 'segunda llamada a startMinecraft');
+    assert.equal(fakeGame.lastOptions.quickPlayMultiplayer, undefined, 'una dirección inválida se ignora');
+    assert.equal(fakeGame.lastOptions.server, undefined);
+    await waitFor(() => statusTypes().includes('error'), 'fin del segundo lanzamiento');
 });
 
 test('una ruta de Java que no es java/javaw no se ejecuta', async () => {
     launch('C:\\Windows\\System32\\cmd.exe');
     await waitFor(() => statusTypes().includes('error'), 'estado error');
-    assert.equal(fakeLauncher.launchCalls, 0);
+    assert.equal(fakeGame.startCalls, 0);
     assert.match(sentStatuses.find((s) => s.type === 'error').message, /ruta de Java no es válida/);
 });
 
 test('un segundo "Iniciar" mientras se prepara el primero no lanza otro juego', async () => {
     fetchDelayMs = 50;
-    fakeLauncher.launchImpl = async () => null;
+    fakeGame.startImpl = async () => { throw new Error('parar aquí'); };
     launch();
     launch();
     await waitFor(() => statusTypes().includes('warning'), 'estado warning');
     await waitFor(() => statusTypes().includes('error'), 'fin del primer lanzamiento');
-    assert.equal(fakeLauncher.launchCalls, 1);
+    assert.equal(fakeGame.startCalls, 1);
 });
 
 test('"Detener" durante la preparación cancela el lanzamiento', async () => {
     fetchDelayMs = 50;
-    fakeLauncher.launchImpl = async () => fakeGameProcess();
+    fakeGame.startImpl = async () => fakeGameProcess();
     launch();
     await tick();
     ipcListeners.get('stop-game')();
     await waitFor(() => statusTypes().includes('stopped'), 'estado stopped');
 
-    assert.equal(fakeLauncher.launchCalls, 0, 'no debe llegar a abrir Java');
+    assert.equal(fakeGame.startCalls, 0, 'no debe llegar a abrir Java');
     assert.ok(!statusTypes().includes('launched'));
 });
 

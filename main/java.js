@@ -103,11 +103,9 @@ function findNewestJava() {
 }
 
 // La ruta de Java llega desde el renderer (campo de texto editable) y se
-// ejecuta tal cual: minecraft-launcher-core la pasa incluso por la shell para
-// comprobar la versión ("<ruta>" -version). Se exige que sea un ejecutable
-// llamado java/javaw, y sin caracteres que la shell interpretaría dentro de
-// comillas, para que el campo no pueda usarse para lanzar cualquier otro
-// programa.
+// ejecuta tal cual. Se exige que sea un ejecutable llamado java/javaw, y sin
+// caracteres que una shell interpretaría, para que el campo no pueda usarse
+// para lanzar cualquier otro programa.
 const JAVA_EXECUTABLE_NAMES = new Set(['java', 'javaw', 'java.exe', 'javaw.exe']);
 
 function isPlausibleJavaPath(javaPath) {

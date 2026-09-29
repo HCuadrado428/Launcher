@@ -126,7 +126,7 @@ function runInstallTask(task, modpackId, labelPrefix) {
 
 // Instala Forge o Fabric dentro de la carpeta de la instancia del modpack y
 // devuelve el "version id" instalado, que es lo que hay que pasar como
-// version.custom a minecraft-launcher-core para lanzar el juego con ese
+// como versión a lanzar (ver gameLauncher.js) para jugar con ese
 // loader. No hace nada (devuelve null) si el modpack es vanilla.
 //
 // requestedLoaderVersion es la build concreta que eligió el creador del

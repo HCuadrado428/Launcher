@@ -1,9 +1,8 @@
 const { ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { Client, Authenticator } = require('minecraft-launcher-core');
 const { VANILLA_ROOT, LOGS_DIR, instanceDir } = require('./paths');
-const { redactSecrets, parseMclcLaunchFailure } = require('./utils');
+const { redactSecrets } = require('./utils');
 const { loadConfig, saveConfig } = require('./config');
 const { isPlausibleJavaPath, requiredJavaMajorFor, getInstalledJavaMajor } = require('./java');
 const { getInstalledVanillaVersions, getMinecraftVersionToLaunch } = require('./mojang');
@@ -14,6 +13,7 @@ const { sanitizeMemory, quickPlayForServer } = require('./gameOptions');
 const { analyzeCrashLog } = require('./crashAnalysis');
 const { ensureFreshMinecraftAuth } = require('./msAuth');
 const { Auth } = require('./msmcLoader');
+const { gameCredentials, buildLaunchOptions, ensureVersionInstalled, startMinecraft } = require('./gameLauncher');
 const { sendToWindow } = require('./windowState');
 const { notify } = require('./notify');
 const { tm } = require('./i18nMain');
@@ -21,8 +21,6 @@ const { tm } = require('./i18nMain');
 // ============================================================================
 // LANZAR / DETENER EL JUEGO
 // ============================================================================
-
-const launcher = new Client();
 
 // Estado del juego. gameProcess solo existe mientras Minecraft está abierto
 // de verdad; launchInProgress cubre todo lo anterior (sincronizar el
@@ -32,7 +30,6 @@ let runningInstanceKey = null;
 let launchInProgress = false;
 let launchCancelRequested = false;
 let stopRequestedByUser = false;
-let lastLaunchFailureReason = null;
 let playSessionStart = null;
 let playSessionTargetKey = null;
 
@@ -85,34 +82,22 @@ function persistCrashLog(code, logText) {
     }
 }
 
-// --- Eventos de minecraft-launcher-core ---
+// --- Salida y cierre del juego ---
 
-launcher.on('debug', (e) => {
-    const line = redactSecrets(e);
-    console.log(`[DEBUG] ${line}`);
-    const failureReason = parseMclcLaunchFailure(line);
-    if (failureReason) lastLaunchFailureReason = failureReason;
-});
-
-launcher.on('data', (e) => {
-    const text = redactSecrets(e);
+function onGameOutput(chunk) {
+    const text = redactSecrets(chunk.toString('utf-8'));
     console.log(`[GAME] ${text}`);
     currentGameLogLines.push(text);
     if (currentGameLogLines.length > MAX_GAME_LOG_CHUNKS) {
         currentGameLogLines.splice(0, currentGameLogLines.length - MAX_GAME_LOG_CHUNKS);
     }
     sendToWindow('game-log', text);
-});
+}
 
-launcher.on('progress', (e) => sendToWindow('game-progress', e));
-launcher.on('download-status', (e) => sendToWindow('game-progress', e));
-
-launcher.on('close', (code) => {
-    // minecraft-launcher-core también emite 'close' (con código 1) cuando la
-    // comprobación de Java falla DENTRO de launch(), antes de que exista
-    // ningún proceso. Ese caso ya lo notifica launchGame (launch() devuelve
-    // null); aquí se ignora para no guardar un crash log vacío de un juego
-    // que nunca llegó a abrirse.
+// crashReport: el informe de crash de Minecraft si lo imprimió por la
+// salida (lo captura el watcher de @xmcl); se guarda junto al log y también
+// se usa para buscar la causa.
+function onGameClosed({ code, crashReport } = {}) {
     if (!gameProcess) return;
     console.log(`[CLOSE] El juego se cerró con código ${code}`);
     const stoppedByUser = stopRequestedByUser;
@@ -137,7 +122,7 @@ launcher.on('close', (code) => {
         return;
     }
 
-    const logText = currentGameLogLines.join('');
+    const logText = currentGameLogLines.join('') + (crashReport ? `\n\n${redactSecrets(crashReport)}` : '');
     lastCrashLogPath = persistCrashLog(code, logText);
     sendGameStatus({
         type: 'closed',
@@ -146,7 +131,7 @@ launcher.on('close', (code) => {
         hasCrashLog: Boolean(lastCrashLogPath)
     });
     notify('Ember Launcher', tm('sys.notify.crashed', { code }));
-});
+}
 
 // --- Lanzamiento ---
 
@@ -154,8 +139,8 @@ launcher.on('close', (code) => {
 // (y guarda el nuevo en la cuenta activa y en la lista de cuentas). Si no se
 // puede renovar, se sigue igualmente avisando: un mundo individual funciona
 // con un token caducado, solo los servidores online lo rechazan.
-async function authorizationFor(account) {
-    if (account.type !== 'microsoft') return Authenticator.getAuth(account.username);
+async function credentialsFor(account) {
+    if (account.type !== 'microsoft') return gameCredentials(account);
 
     const { auth, refreshed, expired } = await ensureFreshMinecraftAuth(account.auth, Auth);
     if (refreshed) {
@@ -166,7 +151,7 @@ async function authorizationFor(account) {
         saveConfig(patch);
     }
     if (expired) sendGameStatus({ type: 'warning', message: tm('sys.game.msSessionExpired') });
-    return auth;
+    return gameCredentials(account, auth);
 }
 
 // Si el jugador pulsó "Detener" mientras se preparaba el lanzamiento, se
@@ -268,33 +253,36 @@ async function launchGame({ javaPath, memory, customArgs, server }) {
     if (!finalJavaPath) return;
     if (cancelLaunchIfRequested()) return;
 
-    const quickPlay = server ? quickPlayForServer(server, versionNumber) : null;
-    const opts = {
-        clientPackage: null,
-        authorization: await authorizationFor(account),
+    // Las versiones vanilla (sin loader) se instalan aquí si faltan; las de
+    // un loader ya las dejó instaladas la sincronización del modpack.
+    const versionId = loaderVersionId || versionNumber;
+    if (!loaderVersionId) {
+        await ensureVersionInstalled(root, versionNumber, (done, total) => {
+            sendToWindow('game-progress', { type: tm('sys.progress.baseMinecraft'), task: done, total });
+        });
+        if (cancelLaunchIfRequested()) return;
+    }
+
+    const options = buildLaunchOptions({
         root,
+        versionId,
         javaPath: finalJavaPath,
-        skipVersionCheck: true,
-        version: loaderVersionId
-            ? { number: versionNumber, type: 'release', custom: loaderVersionId }
-            : { number: versionNumber, type: 'release' },
         memory: finalMemory,
-        ...(finalCustomArgs ? { customArgs: finalCustomArgs.split(/\s+/).filter(Boolean) } : {}),
-        ...(quickPlay ? { quickPlay } : {})
-    };
+        customArgs: finalCustomArgs ? finalCustomArgs.split(/\s+/).filter(Boolean) : [],
+        quickPlay: server ? quickPlayForServer(server, versionNumber) : null,
+        credentials: await credentialsFor(account)
+    });
 
     currentGameLogLines = [];
-    lastLaunchFailureReason = null;
-    // launch() nunca lanza: si algo falla (Java que no arranca, versión que
-    // no se pudo descargar...) lo cuenta en un evento "debug" y devuelve
-    // null. Hay que comprobarlo o la interfaz se queda en "Juego iniciado".
-    const child = await launcher.launch(opts);
-    if (!child) {
+    let child;
+    let watcher;
+    try {
+        ({ child, watcher } = await startMinecraft(options));
+    } catch (err) {
+        console.error('[ERROR] No se pudo iniciar Minecraft:', err);
         sendGameStatus({
             type: 'error',
-            message: lastLaunchFailureReason
-                ? tm('sys.game.launchFailed', { reason: lastLaunchFailureReason })
-                : tm('sys.game.launchFailedUnknown')
+            message: err && err.message ? tm('sys.game.launchFailed', { reason: err.message }) : tm('sys.game.launchFailedUnknown')
         });
         return;
     }
@@ -303,10 +291,13 @@ async function launchGame({ javaPath, memory, customArgs, server }) {
     runningInstanceKey = targetKey;
     playSessionStart = Date.now();
     playSessionTargetKey = targetKey;
+    if (child.stdout) child.stdout.on('data', onGameOutput);
+    if (child.stderr) child.stderr.on('data', onGameOutput);
+    watcher.on('minecraft-exit', onGameClosed);
 
     if (launchCancelRequested) {
-        // "Detener" llegó mientras launch() descargaba/preparaba: el proceso
-        // ya existe, así que se cierra y el evento 'close' avisa al renderer.
+        // "Detener" llegó mientras se instalaba/preparaba: el proceso ya
+        // existe, así que se cierra y onGameClosed avisa al renderer.
         stopRequestedByUser = true;
         child.kill();
         return;

@@ -35,12 +35,9 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       - run: npm test
-      # No bloqueante: minecraft-launcher-core arrastra "request" deprecado y
-      # @xmcl/installer una versión antigua de undici. Se deja para que
-      # aparezca en los logs de cada build sin tumbar la CI.
+      # Dependencias de producción sin vulnerabilidades altas: bloqueante.
       - run: npm audit --omit=dev --audit-level=high
         if: matrix.os == 'ubuntu-latest'
-        continue-on-error: true
 
   e2e:
     # Abre la app de verdad (Electron + Playwright) sin red y recorre lo

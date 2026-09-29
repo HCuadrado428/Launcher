@@ -17,7 +17,6 @@ const {
     isSafePathSegment,
     assertSafePathSegment,
     redactSecrets,
-    parseMclcLaunchFailure,
     writeFileAtomicSync,
     formatBytesMain,
     getFreeDiskSpaceBytes
@@ -150,18 +149,6 @@ test('redactSecrets tapa el access token de la línea de comandos de Minecraft',
     assert.ok(redacted.includes('--username Steve'));
     assert.equal(redactSecrets('[--accessToken, abc123, --version]'), '[--accessToken, ***, --version]');
     assert.equal(redactSecrets('línea normal'), 'línea normal');
-});
-
-test('parseMclcLaunchFailure extrae el motivo de los fallos de launch()', () => {
-    assert.equal(
-        parseMclcLaunchFailure("[MCLC]: Couldn't start Minecraft due to: Error: spawn java ENOENT"),
-        'Error: spawn java ENOENT'
-    );
-    assert.equal(
-        parseMclcLaunchFailure('[MCLC]: Failed to start due to Error: ENOENT: no such file, closing...'),
-        'Error: ENOENT: no such file'
-    );
-    assert.equal(parseMclcLaunchFailure('[MCLC]: Launching with arguments -Xmx4G'), null);
 });
 
 test('writeFileAtomicSync escribe y sobreescribe sin dejar temporales', () => {
