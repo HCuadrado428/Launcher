@@ -8,7 +8,8 @@ const { runWithConcurrencyLimit, formatBytesMain } = require('../utils');
 const { apiPath } = require('../httpUtils');
 const { saveConfig } = require('../config');
 const { apiRequest, uploadForm } = require('../backend');
-const { getForgeVersionsForMc, getFabricVersionsForMc } = require('../loaders');
+const { getLoaderVersionsForMc } = require('../loaders');
+const { isSupportedLoader } = require('../loaderVersions');
 const { searchModrinth, resolveBestModrinthVersion } = require('../modrinth');
 const { findCurseForgeInstances, findModrinthInstances } = require('../localScan');
 const { syncModpack, repairModpack, verifyModpackFiles, wipeInstanceAfterLeaving, checkLocalInstanceHealth } = require('../modpackSync');
@@ -44,13 +45,15 @@ const COVER_MAX_BYTES = 250 * 1024;
 let lastScannedModrinthInstances = [];
 
 function registerModpacksIpc() {
-    ipcMain.handle('get-forge-versions', (event, { mcVersion } = {}) => getForgeVersionsForMc(mcVersion));
-    ipcMain.handle('get-fabric-versions', (event, { mcVersion } = {}) => getFabricVersionsForMc(mcVersion));
+    ipcMain.handle('get-loader-versions', (event, { loader, mcVersion } = {}) => getLoaderVersionsForMc(loader, mcVersion));
 
-    ipcMain.handle('modpacks-create', (event, { name, mcVersion, loader, loaderVersion } = {}) => apiRequest('/api/modpacks', {
-        method: 'POST',
-        body: { name, mc_version: mcVersion, loader, loader_version: loaderVersion }
-    }));
+    ipcMain.handle('modpacks-create', (event, { name, mcVersion, loader, loaderVersion } = {}) => {
+        if (!isSupportedLoader(loader)) throw new Error(tm('sys.unsupportedLoader', { loader }));
+        return apiRequest('/api/modpacks', {
+            method: 'POST',
+            body: { name, mc_version: mcVersion, loader, loader_version: loaderVersion }
+        });
+    });
 
     ipcMain.handle('modpacks-delete', async (event, { id } = {}) => {
         assertInstanceNotInUse(id);

@@ -723,6 +723,8 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 }
 .badge-forge { background: #6a3a1a; color: #ffb877; }
 .badge-fabric { background: #1a3a5c; color: #86c5ff; }
+.badge-neoforge { background: #5c2a1a; color: #ffa27a; }
+.badge-quilt { background: #3d1f5c; color: #d2a8ff; }
 .active-modpack-row {
     display: flex;
     align-items: center;

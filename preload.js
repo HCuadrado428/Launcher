@@ -37,8 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getReleaseVersions: () => invoke('get-release-versions'),
 
     // Versiones de loader (Forge/Fabric)
-    getForgeVersions: (mcVersion) => invoke('get-forge-versions', { mcVersion }),
-    getFabricVersions: (mcVersion) => invoke('get-fabric-versions', { mcVersion }),
+    getLoaderVersions: (loader, mcVersion) => invoke('get-loader-versions', { loader, mcVersion }),
 
     // Idioma
     setLanguage: (lang) => invoke('set-language', lang),

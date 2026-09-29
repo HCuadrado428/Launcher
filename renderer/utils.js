@@ -69,8 +69,8 @@ function skeletonCardsHtml(count) {
     return Array.from({ length: count }, () => '<div class="modpack-card-skeleton"></div>').join('');
 }
 
-const LOADER_LABELS = { forge: 'Forge', fabric: 'Fabric' };
-const LOADER_ICONS = { forge: '🛠️', fabric: '🧵' };
+const LOADER_LABELS = { forge: 'Forge', neoforge: 'NeoForge', fabric: 'Fabric', quilt: 'Quilt' };
+const LOADER_ICONS = { forge: '🛠️', neoforge: '🦊', fabric: '🧵', quilt: '🧶' };
 
 function loaderBadgeHtml(loader, loaderVersion) {
     if (!loader || loader === 'vanilla') return '';

@@ -4,7 +4,7 @@ async function updateActiveModpackLabel(activeModpack) {
     if (activeModpack) {
         let loaderSuffix = '';
         if (activeModpack.loader && activeModpack.loader !== 'vanilla') {
-            const loaderName = activeModpack.loader[0].toUpperCase() + activeModpack.loader.slice(1);
+            const loaderName = LOADER_LABELS[activeModpack.loader] || activeModpack.loader;
             loaderSuffix = activeModpack.loader_version
                 ? ` · ${loaderName} ${activeModpack.loader_version}`
                 : ` · ${loaderName}`;
@@ -86,9 +86,9 @@ async function ensureReleaseVersionsLoaded() {
     return versions;
 }
 
-// Al elegir Forge/Fabric se rellena un tercer <select> con todas las builds
-// disponibles para la versión de Minecraft elegida, marcando y preseleccionando
-// la recomendada (o la estable más reciente en el caso de Fabric).
+// Al elegir un loader (Forge, NeoForge, Fabric o Quilt) se rellena un tercer
+// <select> con todas las builds disponibles para la versión de Minecraft
+// elegida, marcando y preseleccionando la recomendada.
 async function updateLoaderVersionOptions() {
     const loader = newModpackLoader.value;
     if (loader === 'vanilla') {
@@ -104,9 +104,7 @@ async function updateLoaderVersionOptions() {
     newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.loading')}</option>`;
 
     try {
-        const list = loader === 'forge'
-            ? await window.electronAPI.getForgeVersions(mcVersion)
-            : await window.electronAPI.getFabricVersions(mcVersion);
+        const list = await window.electronAPI.getLoaderVersions(loader, mcVersion);
 
         if (!list.length) {
             newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.empty')}</option>`;

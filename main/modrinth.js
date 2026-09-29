@@ -5,6 +5,7 @@
 const { version: APP_VERSION } = require('../package.json');
 const { fetchWithTimeout } = require('./httpUtils');
 const { tm } = require('./i18nMain');
+const { modrinthLoadersFor } = require('./loaderVersions');
 
 const MODRINTH_TIMEOUT_MS = 20000;
 
@@ -16,7 +17,9 @@ const MODRINTH_USER_AGENT = `EmberLauncher/${APP_VERSION} (github.com/HCuadrado4
 async function searchModrinth(query, mcVersion, loader, projectType) {
     const facets = [[`project_type:${projectType}`]];
     if (mcVersion) facets.push([`versions:${mcVersion}`]);
-    if (projectType === 'mod' && loader && loader !== 'vanilla') facets.push([`categories:${loader}`]);
+    // Un grupo de facets es un OR: un modpack de Quilt acepta mods de Quilt y de Fabric.
+    const loaders = modrinthLoadersFor(loader);
+    if (projectType === 'mod' && loaders.length) facets.push(loaders.map((l) => `categories:${l}`));
 
     const params = new URLSearchParams({
         query: query || '',
@@ -37,7 +40,8 @@ async function searchModrinth(query, mcVersion, loader, projectType) {
 async function resolveBestModrinthVersion(projectId, mcVersion, loader, projectType) {
     const params = new URLSearchParams();
     if (mcVersion) params.set('game_versions', JSON.stringify([mcVersion]));
-    if (projectType === 'mod' && loader && loader !== 'vanilla') params.set('loaders', JSON.stringify([loader]));
+    const loaders = modrinthLoadersFor(loader);
+    if (projectType === 'mod' && loaders.length) params.set('loaders', JSON.stringify(loaders));
 
     const res = await fetchWithTimeout(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version?${params.toString()}`, {
         headers: { 'User-Agent': MODRINTH_USER_AGENT }
