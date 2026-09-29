@@ -1,8 +1,8 @@
-const { app, ipcMain, shell } = require('electron');
+const { ipcMain, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { Client, Authenticator } = require('minecraft-launcher-core');
-const { VANILLA_ROOT, instanceDir } = require('./paths');
+const { VANILLA_ROOT, LOGS_DIR, instanceDir } = require('./paths');
 const { redactSecrets, parseMclcLaunchFailure } = require('./utils');
 const { loadConfig, saveConfig } = require('./config');
 const { isPlausibleJavaPath, requiredJavaMajorFor, getInstalledJavaMajor } = require('./java');
@@ -57,7 +57,7 @@ function assertInstanceNotInUse(modpackId) {
 // podía acumular cientos de MB aquí.
 let currentGameLogLines = [];
 const MAX_GAME_LOG_CHUNKS = 5000;
-const CRASH_LOGS_DIR = path.join(app.getPath('userData'), 'crash-logs');
+const CRASH_LOGS_DIR = LOGS_DIR;
 const MAX_CRASH_LOG_FILES = 20;
 let lastCrashLogPath = null;
 

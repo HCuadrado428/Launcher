@@ -138,7 +138,8 @@ function statusTypes() {
 }
 
 function crashLogFiles() {
-    return fs.existsSync(crashLogsDir) ? fs.readdirSync(crashLogsDir) : [];
+    // En esa carpeta también está launcher.log (ver logFile.js).
+    return fs.existsSync(crashLogsDir) ? fs.readdirSync(crashLogsDir).filter((f) => f.startsWith('crash-')) : [];
 }
 
 function launch(javaPath = '/usr/lib/jvm/java-21/bin/java', extra = {}) {

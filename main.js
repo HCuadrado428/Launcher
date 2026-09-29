@@ -3,6 +3,14 @@ const path = require('path');
 const os = require('os');
 const { autoUpdater } = require('electron-updater');
 
+const { LOGS_DIR } = require('./main/paths');
+const { installFileLogger } = require('./main/logFile');
+
+// Lo primero: a partir de aquí todo console.* del proceso principal se
+// guarda también en launcher.log.
+installFileLogger(LOGS_DIR);
+console.log(`[START] Ember Launcher ${app.getVersion()} · ${process.platform} ${os.release()} · Electron ${process.versions.electron}`);
+
 const windowState = require('./main/windowState');
 const { fetchWithTimeout, normalizeImageContentType } = require('./main/httpUtils');
 const { loadConfig } = require('./main/config');

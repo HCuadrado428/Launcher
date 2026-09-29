@@ -4,6 +4,8 @@ const { assertSafePathSegment } = require('./utils');
 
 const INSTANCES_DIR = path.join(app.getPath('appData'), '.milauncher', 'instances');
 const VANILLA_ROOT = path.join(app.getPath('appData'), '.milauncher');
+// Crash logs del juego y launcher.log (ver logFile.js).
+const LOGS_DIR = path.join(app.getPath('userData'), 'crash-logs');
 
 // modpackId viene del servidor (vía renderer) y todo lo que cuelga de esta
 // carpeta se borra al reparar/abandonar un modpack: un id como ".." apuntaría
@@ -32,6 +34,7 @@ function instanceMetaPath(modpackId) {
 module.exports = {
     INSTANCES_DIR,
     VANILLA_ROOT,
+    LOGS_DIR,
     instanceDir,
     instanceModsDir,
     instanceResourcePacksDir,
