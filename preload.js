@@ -4,8 +4,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Config general
     getConfig: () => ipcRenderer.invoke('get-config'),
     getTargetSettings: (modpackId) => ipcRenderer.invoke('get-target-settings', { modpackId }),
-    getBackendUrl: () => ipcRenderer.invoke('get-backend-url'),
-    setBackendUrl: (url) => ipcRenderer.invoke('set-backend-url', url),
     getSystemMemory: () => ipcRenderer.invoke('get-system-memory'),
     getSkinRender: (uuid) => ipcRenderer.invoke('get-skin-render', { uuid }),
     checkBackendStatus: () => ipcRenderer.invoke('check-backend-status'),

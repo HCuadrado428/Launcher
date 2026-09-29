@@ -13,7 +13,7 @@ function renderScreenshotsGrid(shots) {
     screenshotsGrid.innerHTML = shots.map((shot, i) => `
         <div class="screenshot-item" data-index="${i}">
             ${shot.thumbnail
-                ? `<img src="${shot.thumbnail}" alt="${escapeHtml(shot.filename)}" class="screenshot-thumb">`
+                ? `<img src="${escapeHtml(shot.thumbnail)}" alt="${escapeHtml(shot.filename)}" class="screenshot-thumb">`
                 : `<div class="screenshot-thumb screenshot-thumb-broken">🖼️</div>`}
             <button class="screenshot-delete" data-index="${i}" title="${t('screenshots.delete')}">&times;</button>
         </div>

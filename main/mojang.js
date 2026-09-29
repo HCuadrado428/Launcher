@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { fetchWithTimeout } = require('./httpUtils');
 const { VANILLA_ROOT } = require('./paths');
+const { sortVersionIdsNewestFirst } = require('./utils');
 
 // ============================================================================
 // ÚLTIMA VERSIÓN DE MINECRAFT (igual que antes, para el modo "sin modpack")
@@ -39,14 +40,14 @@ async function getMojangManifest() {
 }
 
 // Versiones vanilla que ya están instaladas localmente (carpetas dentro de
-// VANILLA_ROOT/versions). Se usa como mejor alternativa a un número de
-// versión fijo cuando no hay forma de preguntarle a Mojang cuál es la
-// última.
+// VANILLA_ROOT/versions), de más nueva a más antigua. Se usa como mejor
+// alternativa a un número de versión fijo cuando no hay forma de preguntarle
+// a Mojang cuál es la última.
 function getInstalledVanillaVersions() {
     try {
-        return fs.readdirSync(path.join(VANILLA_ROOT, 'versions'), { withFileTypes: true })
+        return sortVersionIdsNewestFirst(fs.readdirSync(path.join(VANILLA_ROOT, 'versions'), { withFileTypes: true })
             .filter((e) => e.isDirectory())
-            .map((e) => e.name);
+            .map((e) => e.name));
     } catch (err) {
         return [];
     }

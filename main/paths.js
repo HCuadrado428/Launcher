@@ -1,11 +1,15 @@
 const { app } = require('electron');
 const path = require('path');
+const { assertSafePathSegment } = require('./utils');
 
 const INSTANCES_DIR = path.join(app.getPath('appData'), '.milauncher', 'instances');
 const VANILLA_ROOT = path.join(app.getPath('appData'), '.milauncher');
 
+// modpackId viene del servidor (vía renderer) y todo lo que cuelga de esta
+// carpeta se borra al reparar/abandonar un modpack: un id como ".." apuntaría
+// fuera de INSTANCES_DIR.
 function instanceDir(modpackId) {
-    return path.join(INSTANCES_DIR, modpackId);
+    return path.join(INSTANCES_DIR, assertSafePathSegment(modpackId, 'Id de modpack'));
 }
 function instanceModsDir(modpackId) {
     return path.join(instanceDir(modpackId), 'mods');
@@ -15,6 +19,11 @@ function instanceResourcePacksDir(modpackId) {
 }
 function instanceDirForModType(modpackId, mod) {
     return mod.type === 'resourcepack' ? instanceResourcePacksDir(modpackId) : instanceModsDir(modpackId);
+}
+// Ruta en disco de un mod/resource pack del manifiesto. El nombre de archivo
+// lo decide el servidor, así que se valida antes de escribir o borrar nada.
+function instanceModFilePath(modpackId, mod) {
+    return path.join(instanceDirForModType(modpackId, mod), assertSafePathSegment(mod.filename, 'Nombre de archivo del mod'));
 }
 function instanceMetaPath(modpackId) {
     return path.join(instanceDir(modpackId), '.launcher-meta.json');
@@ -27,5 +36,6 @@ module.exports = {
     instanceModsDir,
     instanceResourcePacksDir,
     instanceDirForModType,
+    instanceModFilePath,
     instanceMetaPath
 };

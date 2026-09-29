@@ -102,6 +102,22 @@ function findNewestJava() {
     return newestJavaCache;
 }
 
+// La ruta de Java llega desde el renderer (campo de texto editable) y se
+// ejecuta tal cual: minecraft-launcher-core la pasa incluso por la shell para
+// comprobar la versión ("<ruta>" -version). Se exige que sea un ejecutable
+// llamado java/javaw, y sin caracteres que la shell interpretaría dentro de
+// comillas, para que el campo no pueda usarse para lanzar cualquier otro
+// programa.
+const JAVA_EXECUTABLE_NAMES = new Set(['java', 'javaw', 'java.exe', 'javaw.exe']);
+
+function isPlausibleJavaPath(javaPath) {
+    if (typeof javaPath !== 'string') return false;
+    const trimmed = javaPath.trim();
+    if (!trimmed || /["`$\r\n]/.test(trimmed)) return false;
+    const executableName = trimmed.split(/[\\/]/).pop().toLowerCase();
+    return JAVA_EXECUTABLE_NAMES.has(executableName);
+}
+
 // ============================================================================
 // COMPATIBILIDAD DE JAVA (aviso antes de lanzar, no bloqueante)
 // ============================================================================
@@ -154,6 +170,7 @@ function getInstalledJavaMajor(javaPath) {
 module.exports = {
     findJavaCandidates,
     findNewestJava,
+    isPlausibleJavaPath,
     requiredJavaMajorFor,
     getInstalledJavaMajor
 };

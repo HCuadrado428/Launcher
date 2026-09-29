@@ -4,24 +4,26 @@ const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const yazl = require('yazl');
-const AdmZip = require('adm-zip');
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const launcher = new Client();
 
 const { autoUpdater } = require('electron-updater');
 
-const { INSTANCES_DIR, VANILLA_ROOT, instanceDir, instanceModsDir, instanceResourcePacksDir, instanceDirForModType, instanceMetaPath } = require('./main/paths');
-const { runWithConcurrencyLimit, sha1File, formatBytesMain, getFreeDiskSpaceBytes } = require('./main/utils');
+const { INSTANCES_DIR, VANILLA_ROOT, instanceDir, instanceModsDir, instanceResourcePacksDir, instanceModFilePath, instanceMetaPath } = require('./main/paths');
+const { runWithConcurrencyLimit, sha1File, formatBytesMain, getFreeDiskSpaceBytes, redactSecrets, parseMclcLaunchFailure } = require('./main/utils');
 const windowState = require('./main/windowState');
-const { fetchWithTimeout } = require('./main/httpUtils');
+const { fetchWithTimeout, downloadToFile, apiPath, normalizeImageContentType } = require('./main/httpUtils');
 const { loadConfig, saveConfig } = require('./main/config');
-const { findNewestJava, requiredJavaMajorFor, getInstalledJavaMajor } = require('./main/java');
+const { findNewestJava, isPlausibleJavaPath, requiredJavaMajorFor, getInstalledJavaMajor } = require('./main/java');
 const { getBackendUrl, apiRequest, offlineUuidFromUsername, verifyOfflineSessionWithBackend, verifySessionWithBackend } = require('./main/backend');
 const { getInstalledVanillaVersions, getMinecraftVersionToLaunch, getReleaseVersionsToShow } = require('./main/mojang');
 const { getForgeVersionsForMc, getFabricVersionsForMc, installLoaderForInstance } = require('./main/loaders');
 const { searchModrinth, resolveBestModrinthVersion } = require('./main/modrinth');
 const { findCurseForgeInstances, findModrinthInstances } = require('./main/localScan');
 const { ensureSharedGameFilesLinked } = require('./main/sharedGameFiles');
+const { extractSharedConfigZip } = require('./main/sharedConfig');
+const { createKeyedLock, createSingleFlight } = require('./main/instanceLock');
+const { version: APP_VERSION } = require('./package.json');
 
 // msmc se carga de forma "segura": si el usuario todavía no ha hecho
 // `npm install`, no queremos que la app entera crashee al arrancar,
@@ -34,19 +36,43 @@ try {
 }
 
 let mainWindow;
-let gameProcess = null;
 let pendingDeepLink = null;
 let tray = null;
 let isQuitting = false;
 let playSessionStart = null;
 let playSessionTargetKey = null;
 
+// Estado del juego. gameProcess solo existe mientras Minecraft está abierto
+// de verdad; launchInProgress cubre todo lo anterior (sincronizar el
+// modpack, descargar la versión...), que puede durar minutos.
+let gameProcess = null;
+let runningInstanceKey = null;
+let launchInProgress = false;
+let launchCancelRequested = false;
+let stopRequestedByUser = false;
+let lastLaunchFailureReason = null;
+
+function sendGameStatus(payload) {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('game-status', payload);
+}
+
+// Mientras Minecraft está abierto con una instancia, Windows tiene sus .jar
+// bloqueados: sincronizar/reparar/borrar a la vez fallaba a medias.
+function assertInstanceNotInUse(modpackId) {
+    if (gameProcess && runningInstanceKey === String(modpackId)) {
+        throw new Error('Cierra Minecraft antes de modificar esta instalación: sus archivos están en uso.');
+    }
+}
+
 // Buffer del log de la partida actual, solo para poder volcarlo a disco si
 // el juego crashea (código de cierre != 0). Antes vivía únicamente en la
 // consola del renderer (gameLogLines allí), así que si el jugador cerraba el
 // launcher sin haber mirado la consola, el log del crash se perdía para
 // siempre. Se reinicia en cada "launch-game".
+// Se guardan como mucho las últimas MAX_GAME_LOG_CHUNKS salidas: una partida
+// larga con mods que escriben mucho podía acumular cientos de MB aquí.
 let currentGameLogLines = [];
+const MAX_GAME_LOG_CHUNKS = 5000;
 const CRASH_LOGS_DIR = path.join(app.getPath('userData'), 'crash-logs');
 const MAX_CRASH_LOG_FILES = 20;
 
@@ -95,33 +121,43 @@ function saveInstanceMeta(modpackId, meta) {
     fs.writeFileSync(instanceMetaPath(modpackId), JSON.stringify(meta, null, 2));
 }
 
+// Descarga un mod a destPath y comprueba su sha1 contra el del manifiesto.
+// Pasa por un archivo .part que solo se renombra al nombre final si todo ha
+// ido bien (ver downloadToFile), así que nunca se queda un mod a medias o
+// corrupto con el nombre bueno, y no hace falta cargarlo entero en memoria.
 async function downloadModFile(modpackId, mod, destPath) {
     // Los mods con source 'modrinth' (u otras fuentes externas en el futuro)
     // se descargan directamente del CDN de origen; los subidos a mano pasan
     // por nuestro propio backend, como siempre.
-    // Timeout más largo que el de las llamadas normales a la API: aquí se
-    // cuenta la descarga completa del archivo, no solo la respuesta inicial,
-    // y un mod puede pesar bastante en una conexión lenta.
-    const DOWNLOAD_TIMEOUT_MS = 120000;
-
-    if (mod.source && mod.source !== 'upload' && mod.download_url) {
-        const res = await fetchWithTimeout(mod.download_url, {}, DOWNLOAD_TIMEOUT_MS);
-        if (!res.ok) throw new Error(`No se pudo descargar ${mod.filename} desde ${mod.source} (estado ${res.status}).`);
-        const buffer = Buffer.from(await res.arrayBuffer());
-        fs.writeFileSync(destPath, buffer);
-        return;
+    const fromExternalSource = Boolean(mod.source && mod.source !== 'upload' && mod.download_url);
+    let url;
+    let headers = {};
+    if (fromExternalSource) {
+        if (!/^https:\/\//i.test(mod.download_url)) {
+            throw new Error(`La URL de descarga de ${mod.filename} no es https; no se descarga.`);
+        }
+        url = mod.download_url;
+    } else {
+        const cfg = loadConfig();
+        if (!cfg.session || !cfg.session.token) {
+            throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
+        }
+        url = `${getBackendUrl()}${apiPath`/api/modpacks/${modpackId}/mods/${mod.id}/download`}`;
+        headers = { Authorization: `Bearer ${cfg.session.token}` };
     }
 
-    const cfg = loadConfig();
-    if (!cfg.session || !cfg.session.token) {
-        throw new Error('Necesitas iniciar sesión con una cuenta de Microsoft para usar los modpacks.');
+    try {
+        await downloadToFile(url, destPath, { headers, expectedSha1: mod.sha1 });
+    } catch (err) {
+        if (err.code === 'SHA1_MISMATCH') {
+            throw new Error(`El archivo ${mod.filename} se descargó pero no coincide con el original (posible corrupción). Vuelve a intentarlo.`, { cause: err });
+        }
+        if (err.status) {
+            const from = fromExternalSource ? ` desde ${mod.source}` : '';
+            throw new Error(`No se pudo descargar ${mod.filename}${from} (estado ${err.status}).`, { cause: err });
+        }
+        throw err;
     }
-    const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/mods/${mod.id}/download`, {
-        headers: { Authorization: `Bearer ${cfg.session.token}` }
-    }, DOWNLOAD_TIMEOUT_MS);
-    if (!res.ok) throw new Error(`No se pudo descargar ${mod.filename} (estado ${res.status}).`);
-    const buffer = Buffer.from(await res.arrayBuffer());
-    fs.writeFileSync(destPath, buffer);
 }
 
 // Sincronizar puede llegar a descargar miles de archivos pequeños en
@@ -130,22 +166,42 @@ async function downloadModFile(modpackId, mod, destPath) {
 // entero, no solo del launcher ("todo el ordenador va lento"). Bajarle la
 // prioridad al proceso mientras dura la sincronización no reduce el trabajo
 // en sí, pero le dice a Windows que priorice cualquier otra cosa que el
-// usuario esté haciendo mientras tanto.
-async function syncModpack(modpackId) {
-    let priorityLowered = false;
-    try {
-        os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
-        priorityLowered = true;
-    } catch (err) {
-        // Alguna plataforma/permiso no lo soporta; no es crítico, seguimos igual.
+// usuario esté haciendo mientras tanto. Se lleva la cuenta de cuántas
+// sincronizaciones hay en marcha para no devolver la prioridad normal
+// mientras quede alguna (de otro modpack) todavía corriendo.
+let lowPriorityHolders = 0;
+let priorityLowered = false;
+
+async function withLowPriority(task) {
+    if (lowPriorityHolders++ === 0) {
+        try {
+            os.setPriority(process.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+            priorityLowered = true;
+        } catch (err) {
+            // Alguna plataforma/permiso no lo soporta; no es crítico, seguimos igual.
+        }
     }
     try {
-        return await syncModpackImpl(modpackId);
+        return await task();
     } finally {
-        if (priorityLowered) {
+        if (--lowPriorityHolders === 0 && priorityLowered) {
+            priorityLowered = false;
             try { os.setPriority(process.pid, os.constants.priority.PRIORITY_NORMAL); } catch (err) { /* ignorar */ }
         }
     }
+}
+
+// Todo lo que modifica los archivos de una instancia (sincronizar, reparar,
+// verificar, borrar al abandonar) pasa por runInstanceExclusive para no
+// ejecutarse a la vez sobre el mismo modpack. Pedir otra sincronización del
+// mismo modpack mientras ya hay una en marcha espera a esa misma en vez de
+// lanzar una segunda (joinSync).
+const runInstanceExclusive = createKeyedLock();
+const joinSync = createSingleFlight();
+
+function syncModpack(modpackId) {
+    const key = String(modpackId);
+    return joinSync(key, () => runInstanceExclusive(key, () => withLowPriority(() => syncModpackImpl(modpackId))));
 }
 
 // Si el dueño ha publicado una config compartida (botón "Compartir mi
@@ -170,12 +226,13 @@ async function applySharedConfigIfNeeded(modpackId, manifestConfigUpdatedAt) {
         try {
             const cfg = loadConfig();
             if (cfg.session && cfg.session.token) {
-                const res = await fetchWithTimeout(`${getBackendUrl()}/api/modpacks/${modpackId}/config`, {
+                const res = await fetchWithTimeout(`${getBackendUrl()}${apiPath`/api/modpacks/${modpackId}/config`}`, {
                     headers: { Authorization: `Bearer ${cfg.session.token}` }
                 });
                 if (res.ok) {
                     const buffer = Buffer.from(await res.arrayBuffer());
-                    new AdmZip(buffer).extractAllTo(instanceDir(modpackId), true);
+                    // Solo se aceptan config/** y options.txt (ver sharedConfig.js).
+                    await extractSharedConfigZip(buffer, instanceDir(modpackId));
                     applied = true;
                 } else if (res.status !== 404) {
                     throw new Error(`El servidor respondió con estado ${res.status}.`);
@@ -202,7 +259,7 @@ async function syncModpackImpl(modpackId) {
     // loader, para que @xmcl/installer ya se los encuentre puestos.
     ensureSharedGameFilesLinked(instanceDir(modpackId));
 
-    const manifest = await apiRequest(`/api/modpacks/${modpackId}/manifest`);
+    const manifest = await apiRequest(apiPath`/api/modpacks/${modpackId}/manifest`);
     const localMeta = loadInstanceMeta(modpackId);
     fs.mkdirSync(instanceModsDir(modpackId), { recursive: true });
     fs.mkdirSync(instanceResourcePacksDir(modpackId), { recursive: true });
@@ -228,6 +285,11 @@ async function syncModpackImpl(modpackId) {
         const local = localById.get(m.id);
         return !local || local.sha1 !== m.sha1;
     });
+
+    // El nombre de archivo lo decide el servidor; si alguno no es un nombre
+    // simple (p.ej. "../../algo"), no se sincroniza nada en vez de escribir
+    // fuera de la carpeta de la instancia.
+    for (const mod of toDownload) instanceModFilePath(modpackId, mod);
 
     // Loader/versión que hará falta instalar (calculado ya aquí, y no más
     // abajo como antes, porque el chequeo de espacio en disco necesita saber
@@ -278,8 +340,12 @@ async function syncModpackImpl(modpackId) {
     };
 
     for (const mod of toDelete) {
-        const filePath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
-        try { fs.unlinkSync(filePath); } catch (err) { /* ya no estaba */ }
+        try {
+            fs.unlinkSync(instanceModFilePath(modpackId, mod));
+        } catch (err) {
+            // Ya no estaba, o el nombre guardado no es válido (meta de una
+            // versión anterior del launcher): en ambos casos no hay nada que borrar.
+        }
         sendProgress(`Quitando ${mod.filename}...`);
     }
 
@@ -287,12 +353,7 @@ async function syncModpackImpl(modpackId) {
     // no sin límite como las librerías de Minecraft) se aprovecha mejor la
     // conexión sin volver a saturar el sistema de golpe.
     await runWithConcurrencyLimit(toDownload, 4, async (mod) => {
-        const destPath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
-        await downloadModFile(modpackId, mod, destPath);
-        const actualSha1 = await sha1File(destPath);
-        if (actualSha1 !== mod.sha1) {
-            throw new Error(`El archivo ${mod.filename} se descargó pero no coincide con el original (posible corrupción). Vuelve a intentarlo.`);
-        }
+        await downloadModFile(modpackId, mod, instanceModFilePath(modpackId, mod));
         sendProgress(`Descargando ${mod.filename}...`);
     });
 
@@ -466,7 +527,8 @@ ipcMain.handle('get-system-memory', () => os.totalmem());
 async function fetchImageAsDataUri(url, extraHeaders) {
     const res = await fetchWithTimeout(url, { headers: extraHeaders }, 8000);
     if (!res.ok) throw new Error(`estado ${res.status}`);
-    const contentType = res.headers.get('content-type') || 'image/png';
+    const contentType = normalizeImageContentType(res.headers.get('content-type'));
+    if (!contentType) throw new Error(`tipo de contenido inesperado (${res.headers.get('content-type')})`);
     const buffer = Buffer.from(await res.arrayBuffer());
     return `data:${contentType};base64,${buffer.toString('base64')}`;
 }
@@ -474,13 +536,13 @@ async function fetchImageAsDataUri(url, extraHeaders) {
 ipcMain.handle('get-skin-render', async (event, { uuid }) => {
     if (!uuid) return null;
     try {
-        return await fetchImageAsDataUri(`https://crafatar.com/renders/body/${uuid}?scale=6&overlay`);
+        return await fetchImageAsDataUri(`https://crafatar.com/renders/body/${encodeURIComponent(uuid)}?scale=6&overlay`);
     } catch (err) {
         console.warn('[WARN] Crafatar no disponible, probando con Visage:', err.message);
     }
     try {
-        return await fetchImageAsDataUri(`https://visage.surgeplay.com/full/256/${uuid}`, {
-            'User-Agent': 'EmberLauncher/1.3.0 (+https://github.com/HCuadrado428/Launcher)'
+        return await fetchImageAsDataUri(`https://visage.surgeplay.com/full/256/${encodeURIComponent(uuid)}`, {
+            'User-Agent': `EmberLauncher/${APP_VERSION} (+https://github.com/HCuadrado428/Launcher)`
         });
     } catch (err) {
         console.warn('[WARN] Visage tampoco disponible:', err.message);
@@ -517,10 +579,22 @@ ipcMain.handle('check-for-updates', async () => {
 // VENTANA Y DEEP LINKS (milauncher://invite/TOKEN)
 // ============================================================================
 
+// Los tokens de invitación que genera el backend son un único segmento de
+// URL (letras, números, "-", "_"...). Cualquier otra cosa en un link
+// milauncher:// (o pegada a mano en el campo de invitación) se rechaza en
+// vez de meterla en la ruta de una petición al backend.
+const INVITE_TOKEN_RE = /^[A-Za-z0-9._~+=-]{1,256}$/;
+
 function handleDeepLink(url) {
-    const match = /^milauncher:\/\/invite\/(.+)$/.exec(url || '');
+    const match = /^milauncher:\/\/invite\/([^/?#]+)\/?$/.exec(url || '');
     if (!match) return;
-    const token = match[1];
+    let token;
+    try {
+        token = decodeURIComponent(match[1]);
+    } catch (err) {
+        return;
+    }
+    if (!INVITE_TOKEN_RE.test(token) || /^\.+$/.test(token)) return;
     if (mainWindow && !mainWindow.webContents.isLoading()) {
         mainWindow.webContents.send('invite-received', { token });
         mainWindow.focus();
@@ -547,6 +621,17 @@ if (!gotLock) {
         handleDeepLink(url);
     });
 
+    // La ventana principal tiene acceso a window.electronAPI (preload): si
+    // llegara a navegar a otra página (un enlace, un location.href...) esa
+    // página tendría el mismo acceso. Nunca tiene que salir de index.html ni
+    // abrir ventanas nuevas. No se aplica a todas las ventanas de la app
+    // porque el login de Microsoft (msmc) abre la suya propia y ahí sí hay
+    // que navegar.
+    function lockDownNavigation(win) {
+        win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+        win.webContents.on('will-navigate', (event) => event.preventDefault());
+    }
+
     // Pantalla de carga: tapa el parpadeo en blanco/negro que da Electron los
     // primeros instantes mientras arranca el proceso de renderizado, y se
     // cierra sola en cuanto la ventana principal ya tiene su primer frame
@@ -563,8 +648,9 @@ if (!gotLock) {
             skipTaskbar: true,
             alwaysOnTop: true,
             icon: APP_ICON_PATH,
-            webPreferences: { contextIsolation: true }
+            webPreferences: { contextIsolation: true, sandbox: true }
         });
+        lockDownNavigation(splash);
         splash.loadFile('splash.html');
         return splash;
     }
@@ -582,9 +668,11 @@ if (!gotLock) {
             webPreferences: {
                 preload: path.join(__dirname, 'preload.js'),
                 nodeIntegration: false,
-                contextIsolation: true
+                contextIsolation: true,
+                sandbox: true
             }
         });
+        lockDownNavigation(mainWindow);
         windowState.setMainWindow(mainWindow);
         mainWindow.loadFile('index.html');
 
@@ -647,11 +735,20 @@ if (!gotLock) {
 // EVENTOS DEL LANZADOR DE MINECRAFT
 // ============================================================================
 
-launcher.on('debug', (e) => console.log(`[DEBUG] ${e}`));
+launcher.on('debug', (e) => {
+    const line = redactSecrets(e);
+    console.log(`[DEBUG] ${line}`);
+    const failureReason = parseMclcLaunchFailure(line);
+    if (failureReason) lastLaunchFailureReason = failureReason;
+});
 launcher.on('data', (e) => {
-    console.log(`[GAME] ${e}`);
-    currentGameLogLines.push(String(e));
-    if (mainWindow) mainWindow.webContents.send('game-log', String(e));
+    const text = redactSecrets(e);
+    console.log(`[GAME] ${text}`);
+    currentGameLogLines.push(text);
+    if (currentGameLogLines.length > MAX_GAME_LOG_CHUNKS) {
+        currentGameLogLines.splice(0, currentGameLogLines.length - MAX_GAME_LOG_CHUNKS);
+    }
+    if (mainWindow) mainWindow.webContents.send('game-log', text);
 });
 
 launcher.on('progress', (e) => {
@@ -662,8 +759,17 @@ launcher.on('download-status', (e) => {
 });
 
 launcher.on('close', (code) => {
+    // minecraft-launcher-core también emite 'close' (con código 1) cuando la
+    // comprobación de Java falla DENTRO de launch(), antes de que exista
+    // ningún proceso. Ese caso ya lo notifica launch-game (launch() devuelve
+    // null); aquí se ignora para no guardar un crash log vacío de un juego
+    // que nunca llegó a abrirse.
+    if (!gameProcess) return;
     console.log(`[CLOSE] El juego se cerró con código ${code}`);
+    const stoppedByUser = stopRequestedByUser;
     gameProcess = null;
+    runningInstanceKey = null;
+    stopRequestedByUser = false;
 
     if (playSessionStart) {
         const minutesPlayed = (Date.now() - playSessionStart) / 60000;
@@ -676,10 +782,10 @@ launcher.on('close', (code) => {
         playSessionTargetKey = null;
     }
 
-    if (mainWindow) {
-        mainWindow.webContents.send('game-status', { type: 'closed', code });
-    }
-    if (code !== 0) {
+    sendGameStatus({ type: stoppedByUser ? 'stopped' : 'closed', code });
+    // Al pulsar "Detener" el proceso muere con código 1 (Windows) o null
+    // (señal): eso no es un crash y no merece ni log ni aviso.
+    if (code !== 0 && !stoppedByUser) {
         persistCrashLog(code);
         notify('Ember Launcher', `Minecraft se cerró inesperadamente (código ${code}). Revisa la consola del juego para más detalles.`);
     }
@@ -723,8 +829,6 @@ ipcMain.handle('get-target-settings', (event, { modpackId }) => {
     };
 });
 
-ipcMain.handle('get-backend-url', () => getBackendUrl());
-ipcMain.handle('set-backend-url', (event, url) => saveConfig({ backendUrl: url }));
 
 // Añade/actualiza una cuenta en la lista guardada, identificándola por su
 // "id" (estable entre sesiones: el uuid de Xbox para Microsoft, el nombre en
@@ -971,11 +1075,12 @@ ipcMain.handle('modpacks-create', async (event, { name, mcVersion, loader, loade
 });
 
 ipcMain.handle('modpacks-delete', async (event, { id }) => {
-    const result = await apiRequest(`/api/modpacks/${id}`, { method: 'DELETE' });
+    assertInstanceNotInUse(id);
+    const result = await apiRequest(apiPath`/api/modpacks/${id}`, { method: 'DELETE' });
     // El modpack ya no existe en el servidor, así que tampoco tiene sentido
     // dejar sus mods/librerías descargados ocupando disco local. wipeRepairableInstanceData
     // conserva saves/config/screenshots por si el jugador quiere quedárselos.
-    await wipeRepairableInstanceData(id);
+    await runInstanceExclusive(String(id), () => wipeRepairableInstanceData(id));
     return result;
 });
 
@@ -984,7 +1089,7 @@ ipcMain.handle('modpacks-mine', async () => {
 });
 
 ipcMain.handle('modpacks-manifest', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}/manifest`);
+    return apiRequest(apiPath`/api/modpacks/${id}/manifest`);
 });
 
 // Comprobación rápida y solo local (sin tocar el servidor) de si la
@@ -1015,9 +1120,8 @@ async function checkLocalInstanceHealth(modpackId) {
     let missing = false;
     await runWithConcurrencyLimit(mods, 8, async (mod) => {
         if (missing) return;
-        const filePath = path.join(instanceDirForModType(modpackId, mod), mod.filename);
         try {
-            await fs.promises.access(filePath, fs.constants.F_OK);
+            await fs.promises.access(instanceModFilePath(modpackId, mod), fs.constants.F_OK);
         } catch (err) {
             missing = true;
         }
@@ -1055,7 +1159,7 @@ ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
         form.append('type', modType);
         form.append('mod', new Blob([fileBuffer]), path.basename(filePath));
 
-        const res = await fetch(`${getBackendUrl()}/api/modpacks/${id}/mods`, {
+        const res = await fetch(`${getBackendUrl()}${apiPath`/api/modpacks/${id}/mods`}`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${cfg.session.token}` },
             body: form
@@ -1068,11 +1172,11 @@ ipcMain.handle('modpacks-add-mod', async (event, { id, type }) => {
 });
 
 ipcMain.handle('modpacks-remove-mod', async (event, { id, modId }) => {
-    return apiRequest(`/api/modpacks/${id}/mods/${modId}`, { method: 'DELETE' });
+    return apiRequest(apiPath`/api/modpacks/${id}/mods/${modId}`, { method: 'DELETE' });
 });
 
 ipcMain.handle('modpacks-check-mod-update', async (event, { id, modId }) => {
-    return apiRequest(`/api/modpacks/${id}/mods/${modId}/check-update`);
+    return apiRequest(apiPath`/api/modpacks/${id}/mods/${modId}/check-update`);
 });
 
 ipcMain.handle('search-modrinth', async (event, { query, mcVersion, loader, projectType }) => {
@@ -1082,7 +1186,7 @@ ipcMain.handle('search-modrinth', async (event, { query, mcVersion, loader, proj
 ipcMain.handle('add-mod-from-modrinth', async (event, { id, projectId, mcVersion, loader, projectType }) => {
     const version = await resolveBestModrinthVersion(projectId, mcVersion, loader, projectType);
     if (!version) throw new Error('No hay ninguna versión de este mod compatible con la versión de Minecraft/loader del modpack.');
-    return apiRequest(`/api/modpacks/${id}/mods/from-modrinth`, {
+    return apiRequest(apiPath`/api/modpacks/${id}/mods/from-modrinth`, {
         method: 'POST',
         body: { project_id: projectId, version_id: version.id, type: projectType }
     });
@@ -1119,7 +1223,7 @@ ipcMain.handle('import-local-modpack', async (event, { instancePath }) => {
     // abajo en este archivo.
     await runWithConcurrencyLimit(instance.resolvedMods, 6, async (mod) => {
         try {
-            await apiRequest(`/api/modpacks/${created.id}/mods/from-modrinth`, {
+            await apiRequest(apiPath`/api/modpacks/${created.id}/mods/from-modrinth`, {
                 method: 'POST',
                 body: { project_id: mod.projectId, version_id: mod.versionId, type: 'mod' }
             });
@@ -1142,34 +1246,34 @@ ipcMain.handle('import-local-modpack', async (event, { instancePath }) => {
 });
 
 ipcMain.handle('modpacks-create-invite', async (event, { id, maxUses, expiresHours }) => {
-    return apiRequest(`/api/modpacks/${id}/invite`, {
+    return apiRequest(apiPath`/api/modpacks/${id}/invite`, {
         method: 'POST',
         body: { max_uses: maxUses || null, expires_in_hours: expiresHours || null }
     });
 });
 
 ipcMain.handle('modpacks-list-invites', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}/invites`);
+    return apiRequest(apiPath`/api/modpacks/${id}/invites`);
 });
 
 ipcMain.handle('modpacks-revoke-invite', async (event, { id, token }) => {
-    return apiRequest(`/api/modpacks/${id}/invites/${token}`, { method: 'DELETE' });
+    return apiRequest(apiPath`/api/modpacks/${id}/invites/${token}`, { method: 'DELETE' });
 });
 
 ipcMain.handle('modpacks-list-access', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}/access`);
+    return apiRequest(apiPath`/api/modpacks/${id}/access`);
 });
 
 ipcMain.handle('modpacks-revoke-access', async (event, { id, uuid }) => {
-    return apiRequest(`/api/modpacks/${id}/access/${uuid}`, { method: 'DELETE' });
+    return apiRequest(apiPath`/api/modpacks/${id}/access/${uuid}`, { method: 'DELETE' });
 });
 
 ipcMain.handle('modpacks-list-versions', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}/versions`);
+    return apiRequest(apiPath`/api/modpacks/${id}/versions`);
 });
 
 ipcMain.handle('modpacks-restore-version', async (event, { id, versionId }) => {
-    return apiRequest(`/api/modpacks/${id}/versions/${versionId}/restore`, { method: 'POST' });
+    return apiRequest(apiPath`/api/modpacks/${id}/versions/${versionId}/restore`, { method: 'POST' });
 });
 
 ipcMain.handle('get-storage-usage', async () => {
@@ -1177,20 +1281,25 @@ ipcMain.handle('get-storage-usage', async () => {
 });
 
 ipcMain.handle('modpacks-leave', async (event, { id }) => {
-    const result = await apiRequest(`/api/modpacks/${id}/leave`, { method: 'POST' });
+    assertInstanceNotInUse(id);
+    const result = await apiRequest(apiPath`/api/modpacks/${id}/leave`, { method: 'POST' });
     // Sin esto, los mods/librerías ya descargados de ese modpack se quedaban
     // en disco para siempre sin ninguna forma de recuperar el espacio desde
     // la interfaz. wipeRepairableInstanceData conserva saves/config/
     // screenshots por si el jugador quiere quedárselos igualmente.
-    await wipeRepairableInstanceData(id);
+    await runInstanceExclusive(String(id), () => wipeRepairableInstanceData(id));
     return result;
 });
 
 ipcMain.handle('modpacks-redeem-invite', async (event, { token }) => {
-    return apiRequest(`/api/invites/${token}/redeem`, { method: 'POST' });
+    if (typeof token !== 'string' || !INVITE_TOKEN_RE.test(token) || /^\.+$/.test(token)) {
+        throw new Error('Ese enlace de invitación no es válido.');
+    }
+    return apiRequest(apiPath`/api/invites/${token}/redeem`, { method: 'POST' });
 });
 
 ipcMain.handle('modpacks-sync', async (event, { id }) => {
+    assertInstanceNotInUse(id);
     return syncModpack(id);
 });
 
@@ -1209,8 +1318,11 @@ async function wipeRepairableInstanceData(modpackId) {
     await fs.promises.rm(instanceMetaPath(modpackId), { force: true });
 }
 ipcMain.handle('modpacks-repair', async (event, { id }) => {
-    await wipeRepairableInstanceData(id);
-    return syncModpack(id);
+    assertInstanceNotInUse(id);
+    return runInstanceExclusive(String(id), async () => {
+        await wipeRepairableInstanceData(id);
+        return withLowPriority(() => syncModpackImpl(id));
+    });
 });
 
 // "Verificar archivos": más ligero que "Reparar". No toca el loader ni borra
@@ -1218,6 +1330,11 @@ ipcMain.handle('modpacks-repair', async (event, { id }) => {
 // que se recordó en su día, por si el archivo se corrompió o alguien lo tocó
 // a mano) y solo vuelve a descargar los que de verdad no coinciden.
 ipcMain.handle('modpacks-verify-files', async (event, { id }) => {
+    assertInstanceNotInUse(id);
+    return runInstanceExclusive(String(id), () => verifyModpackFiles(id));
+});
+
+async function verifyModpackFiles(id) {
     const localMeta = loadInstanceMeta(id);
     const mods = localMeta.mods || [];
     const total = mods.length;
@@ -1229,7 +1346,7 @@ ipcMain.handle('modpacks-verify-files', async (event, { id }) => {
     // muchos mods hacía que "Verificar archivos" tardase mucho más de lo
     // necesario para lo poco que cuesta cada comprobación individual.
     await runWithConcurrencyLimit(mods, 6, async (mod) => {
-        const filePath = path.join(instanceDirForModType(id, mod), mod.filename);
+        const filePath = instanceModFilePath(id, mod);
         let actualSha1 = null;
         if (fs.existsSync(filePath)) {
             try { actualSha1 = await sha1File(filePath); } catch (err) { actualSha1 = null; }
@@ -1247,16 +1364,13 @@ ipcMain.handle('modpacks-verify-files', async (event, { id }) => {
         if (mainWindow) {
             mainWindow.webContents.send('modpack-sync-progress', { label: `Corrigiendo ${mod.filename}...`, percent, modpackId: id });
         }
+        // downloadModFile ya comprueba el sha1 antes de dejar el archivo.
         await downloadModFile(id, mod, filePath);
-        const redownloadedSha1 = await sha1File(filePath);
-        if (redownloadedSha1 !== mod.sha1) {
-            throw new Error(`El archivo ${mod.filename} se volvió a descargar pero sigue sin coincidir con el original. Vuelve a intentarlo.`);
-        }
         fixed++;
     });
 
     return { checked, fixed };
-});
+}
 
 // Exporta los mods y resource packs ya descargados de un modpack a un .zip
 // local, para tener copia de seguridad sin depender del servidor. No incluye
@@ -1338,7 +1452,7 @@ ipcMain.handle('modpacks-share-config', async (event, { id }) => {
         const form = new FormData();
         form.append('config', new Blob([fileBuffer]), 'config.zip');
 
-        const res = await fetch(`${getBackendUrl()}/api/modpacks/${id}/config`, {
+        const res = await fetch(`${getBackendUrl()}${apiPath`/api/modpacks/${id}/config`}`, {
             method: 'PUT',
             headers: { Authorization: `Bearer ${cfg.session.token}` },
             body: form
@@ -1352,7 +1466,7 @@ ipcMain.handle('modpacks-share-config', async (event, { id }) => {
 });
 
 ipcMain.handle('modpacks-remove-config', async (event, { id }) => {
-    return apiRequest(`/api/modpacks/${id}/config`, { method: 'DELETE' });
+    return apiRequest(apiPath`/api/modpacks/${id}/config`, { method: 'DELETE' });
 });
 
 // --- Servidores favoritos (solo locales, no pasan por el backend) ---
@@ -1439,7 +1553,7 @@ ipcMain.handle('modpacks-set-cover', async (event, { id }) => {
 
     const buffer = await fs.promises.readFile(filePath);
     const dataUri = `data:${mime};base64,${buffer.toString('base64')}`;
-    await apiRequest(`/api/modpacks/${id}/cover`, { method: 'PUT', body: { cover_image: dataUri } });
+    await apiRequest(apiPath`/api/modpacks/${id}/cover`, { method: 'PUT', body: { cover_image: dataUri } });
     return { cancelled: false, coverImage: dataUri };
 });
 
@@ -1456,33 +1570,74 @@ ipcMain.handle('modpacks-select', async (event, { id, name, mcVersion, loader, l
 // IPC: LANZAR / DETENER EL JUEGO
 // ============================================================================
 
-ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
+// "4G", "2048M"... Lo que no tenga esa forma se ignora y se usa el valor
+// por defecto, en vez de pasarlo tal cual a la línea de comandos de Java.
+const MEMORY_VALUE_RE = /^\d{1,6}[MG]$/;
+
+function sanitizeMemory(memory) {
+    const max = memory && MEMORY_VALUE_RE.test(memory.max) ? memory.max : '4G';
+    const min = memory && MEMORY_VALUE_RE.test(memory.min) ? memory.min : '2G';
+    return { max, min };
+}
+
+ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs } = {}) => {
+    if (launchInProgress || gameProcess) {
+        sendGameStatus({ type: 'warning', message: 'Minecraft ya se está iniciando o ya está abierto.' });
+        return;
+    }
+    launchInProgress = true;
+    launchCancelRequested = false;
+    try {
+        await launchGame({ javaPath, memory, customArgs });
+    } catch (err) {
+        console.error('[ERROR] Fallo al lanzar el juego:', err);
+        sendGameStatus({ type: 'error', message: err && err.message ? err.message : String(err) });
+    } finally {
+        launchInProgress = false;
+        launchCancelRequested = false;
+    }
+});
+
+// Si el jugador pulsó "Detener" mientras se preparaba el lanzamiento, se
+// para en el siguiente punto seguro (tras sincronizar, antes de abrir Java).
+function cancelLaunchIfRequested() {
+    if (!launchCancelRequested) return false;
+    sendGameStatus({ type: 'stopped' });
+    return true;
+}
+
+async function launchGame({ javaPath, memory, customArgs }) {
     const cfg = loadConfig();
     const account = cfg.account;
 
     if (!account) {
-        mainWindow.webContents.send('game-status', {
-            type: 'error',
-            message: 'No hay ninguna cuenta seleccionada. Inicia sesión primero.'
-        });
+        sendGameStatus({ type: 'error', message: 'No hay ninguna cuenta seleccionada. Inicia sesión primero.' });
         return;
     }
 
-    let finalJavaPath = javaPath && javaPath.trim() ? javaPath.trim() : findNewestJava();
+    const finalJavaPath = typeof javaPath === 'string' && javaPath.trim() ? javaPath.trim() : findNewestJava();
     if (!finalJavaPath) {
-        mainWindow.webContents.send('game-status', {
+        sendGameStatus({
             type: 'error',
             message: 'No se encontró ninguna instalación de Java en este sistema. Instala Java o indica la ruta manualmente.'
         });
         return;
     }
+    if (!isPlausibleJavaPath(finalJavaPath)) {
+        sendGameStatus({
+            type: 'error',
+            message: 'La ruta de Java no es válida: tiene que apuntar al ejecutable java o javaw (por ejemplo ...\\bin\\javaw.exe).'
+        });
+        return;
+    }
 
+    const finalMemory = sanitizeMemory(memory);
     const finalCustomArgs = typeof customArgs === 'string' ? customArgs.trim() : '';
 
-    const targetKey = (cfg.activeModpack && cfg.activeModpack.id) || 'vanilla';
+    const targetKey = String((cfg.activeModpack && cfg.activeModpack.id) || 'vanilla');
     const perModpackSettings = { ...(cfg.perModpackSettings || {}) };
-    perModpackSettings[targetKey] = { javaPath: finalJavaPath, memory, customArgs: finalCustomArgs };
-    saveConfig({ javaPath: finalJavaPath, memory, perModpackSettings });
+    perModpackSettings[targetKey] = { javaPath: finalJavaPath, memory: finalMemory, customArgs: finalCustomArgs };
+    saveConfig({ javaPath: finalJavaPath, memory: finalMemory, perModpackSettings });
 
     const authorization = account.type === 'microsoft'
         ? account.auth
@@ -1506,46 +1661,45 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
                 // guardados del jugador que quiera conservar aunque pierda acceso
                 // al modpack (por ejemplo, si el dueño lo vuelve a compartir).
                 saveConfig({ activeModpack: null });
-                mainWindow.webContents.send('game-status', {
+                sendGameStatus({
                     type: 'modpack-removed',
                     message: `El modpack "${activeModpack.name}" ya no está disponible (fue eliminado o perdiste el acceso). Has vuelto a Minecraft vanilla; pulsa "Iniciar Juego" de nuevo si quieres continuar.`
                 });
                 return;
             }
-            mainWindow.webContents.send('game-status', {
-                type: 'error',
-                message: `No se pudo sincronizar el modpack: ${err.message}`
-            });
+            sendGameStatus({ type: 'error', message: `No se pudo sincronizar el modpack: ${err.message}` });
             return;
         }
 
         versionNumber = synced.mc_version;
         loaderVersionId = synced.loader_version_id;
         root = instanceDir(activeModpack.id);
-        mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
+        sendGameStatus({ type: 'version-selected', version: versionNumber });
     } else {
         const resolved = await getMinecraftVersionToLaunch();
         versionNumber = resolved.version;
         root = VANILLA_ROOT;
         if (resolved.fallback) {
-            mainWindow.webContents.send('game-status', {
+            sendGameStatus({
                 type: 'version-fallback-warning',
                 message: `No se pudo comprobar cuál es la última versión de Minecraft (¿sin conexión?). Se va a usar la ${versionNumber}${getInstalledVanillaVersions().length ? ' (la última que tienes instalada)' : ''}.`
             });
         }
-        mainWindow.webContents.send('game-status', { type: 'version-selected', version: versionNumber });
+        sendGameStatus({ type: 'version-selected', version: versionNumber });
     }
+
+    if (cancelLaunchIfRequested()) return;
 
     const requiredJavaMajor = requiredJavaMajorFor(versionNumber);
     const installedJavaMajor = await getInstalledJavaMajor(finalJavaPath);
     if (installedJavaMajor && installedJavaMajor < requiredJavaMajor) {
-        mainWindow.webContents.send('game-status', {
+        sendGameStatus({
             type: 'java-warning',
             message: `Minecraft ${versionNumber} necesita Java ${requiredJavaMajor} o superior, pero la ruta de Java seleccionada es la ${installedJavaMajor}. El juego podría no arrancar; puedes cambiarla arriba o pulsar "Detectar".`
         });
     }
 
-    let opts = {
+    const opts = {
         clientPackage: null,
         authorization,
         root,
@@ -1554,28 +1708,41 @@ ipcMain.on('launch-game', async (event, { javaPath, memory, customArgs }) => {
         version: loaderVersionId
             ? { number: versionNumber, type: 'release', custom: loaderVersionId }
             : { number: versionNumber, type: 'release' },
-        memory: {
-            max: (memory && memory.max) || '4G',
-            min: (memory && memory.min) || '2G'
-        },
+        memory: finalMemory,
         ...(finalCustomArgs ? { customArgs: finalCustomArgs.split(/\s+/).filter(Boolean) } : {})
     };
 
-    try {
-        currentGameLogLines = [];
-        gameProcess = await launcher.launch(opts);
-        mainWindow.webContents.send('game-status', { type: 'launched' });
-        playSessionStart = Date.now();
-        playSessionTargetKey = targetKey;
-    } catch (err) {
-        console.error('[ERROR] Fallo al lanzar el juego:', err);
-        gameProcess = null;
-        mainWindow.webContents.send('game-status', {
+    currentGameLogLines = [];
+    lastLaunchFailureReason = null;
+    // launch() nunca lanza: si algo falla (Java que no arranca, versión que
+    // no se pudo descargar...) lo cuenta en un evento "debug" y devuelve
+    // null. Antes se daba por lanzado igualmente y la interfaz se quedaba en
+    // "Juego iniciado" para siempre, con "Detener" sin hacer nada.
+    const child = await launcher.launch(opts);
+    if (!child) {
+        sendGameStatus({
             type: 'error',
-            message: err && err.message ? err.message : String(err)
+            message: lastLaunchFailureReason
+                ? `No se pudo iniciar Minecraft: ${lastLaunchFailureReason}`
+                : 'No se pudo iniciar Minecraft. Abre la consola del juego para ver el motivo.'
         });
+        return;
     }
-});
+
+    gameProcess = child;
+    runningInstanceKey = targetKey;
+    playSessionStart = Date.now();
+    playSessionTargetKey = targetKey;
+
+    if (launchCancelRequested) {
+        // "Detener" llegó mientras launch() descargaba/preparaba: el proceso
+        // ya existe, así que se cierra y el evento 'close' avisa al renderer.
+        stopRequestedByUser = true;
+        child.kill();
+        return;
+    }
+    sendGameStatus({ type: 'launched' });
+}
 
 ipcMain.handle('open-crash-logs-folder', () => {
     fs.mkdirSync(CRASH_LOGS_DIR, { recursive: true });
@@ -1678,11 +1845,19 @@ ipcMain.handle('delete-screenshot', (event, { id, filename } = {}) => {
     return { ok: true };
 });
 
+// El aviso 'stopped' lo manda el evento 'close' cuando el proceso termina de
+// verdad (y así no se toma por un crash). Si todavía se está preparando el
+// lanzamiento, se cancela en el siguiente punto seguro.
 ipcMain.on('stop-game', () => {
     if (gameProcess) {
         console.log('[STOP] Deteniendo el juego...');
+        stopRequestedByUser = true;
         gameProcess.kill();
-        gameProcess = null;
-        mainWindow.webContents.send('game-status', { type: 'stopped' });
+    } else if (launchInProgress) {
+        launchCancelRequested = true;
+    } else {
+        // Nada que parar: el renderer iba desincronizado, se le devuelve al
+        // estado de reposo.
+        sendGameStatus({ type: 'stopped' });
     }
 });

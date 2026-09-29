@@ -79,10 +79,10 @@ async function loadInvitesAndAccess() {
 
         invitesList.innerHTML = invites.length
             ? invites.map(inv => `
-                <div class="mod-item" data-token="${inv.token}">
-                    <span>${inv.uses}${inv.max_uses ? '/' + inv.max_uses : ''} ${t('modal.access.uses')}${inv.expires_at ? ' · ' + new Date(inv.expires_at).toLocaleDateString() : ''}</span>
-                    <button class="mod-item-update" data-token="${inv.token}" title="${t('modal.access.copyLink')}">📋</button>
-                    <button class="mod-item-remove" data-token="${inv.token}" title="${t('modal.access.revoke')}">&times;</button>
+                <div class="mod-item" data-token="${escapeHtml(inv.token)}">
+                    <span>${escapeHtml(inv.uses)}${inv.max_uses ? '/' + escapeHtml(inv.max_uses) : ''} ${t('modal.access.uses')}${inv.expires_at ? ' · ' + new Date(inv.expires_at).toLocaleDateString() : ''}</span>
+                    <button class="mod-item-update" data-token="${escapeHtml(inv.token)}" title="${t('modal.access.copyLink')}">📋</button>
+                    <button class="mod-item-remove" data-token="${escapeHtml(inv.token)}" title="${t('modal.access.revoke')}">&times;</button>
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.access.noInvites')}</div>`;
@@ -109,9 +109,9 @@ async function loadInvitesAndAccess() {
 
         accessList.innerHTML = accessUsers.length
             ? accessUsers.map(u => `
-                <div class="mod-item" data-uuid="${u.uuid}">
+                <div class="mod-item" data-uuid="${escapeHtml(u.uuid)}">
                     <span>${escapeHtml(u.username || u.uuid)}</span>
-                    <button class="mod-item-remove" data-uuid="${u.uuid}" title="${t('modal.access.revoke')}">&times;</button>
+                    <button class="mod-item-remove" data-uuid="${escapeHtml(u.uuid)}" title="${t('modal.access.revoke')}">&times;</button>
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.access.noAccess')}</div>`;
@@ -136,9 +136,9 @@ async function loadVersionHistory() {
         const versions = await window.electronAPI.listModpackVersions(currentModsModalId);
         versionsList.innerHTML = versions.length
             ? versions.map(v => `
-                <div class="mod-item" data-version-id="${v.id}">
-                    <span>${new Date(v.created_at).toLocaleString()} · ${v.mod_count} mods</span>
-                    <button class="secondary" data-version-id="${v.id}" data-restore>${t('modal.versions.restore')}</button>
+                <div class="mod-item" data-version-id="${escapeHtml(v.id)}">
+                    <span>${new Date(v.created_at).toLocaleString()} · ${escapeHtml(v.mod_count)} mods</span>
+                    <button class="secondary" data-version-id="${escapeHtml(v.id)}" data-restore>${t('modal.versions.restore')}</button>
                 </div>
             `).join('')
             : `<div class="empty-hint">${t('modal.versions.empty')}</div>`;
@@ -198,14 +198,14 @@ function renderModsList() {
         ? filtered.map(mod => {
             const included = currentOptionalChoices[mod.id] !== false; // ausencia = incluido
             const optionalToggle = mod.optional
-                ? `<label class="mod-item-optional-toggle"><input type="checkbox" class="mod-item-optional-checkbox" data-mod-id="${mod.id}" ${included ? 'checked' : ''}> ${t('modal.mods.includeToggle')}</label>`
+                ? `<label class="mod-item-optional-toggle"><input type="checkbox" class="mod-item-optional-checkbox" data-mod-id="${escapeHtml(mod.id)}" ${included ? 'checked' : ''}> ${t('modal.mods.includeToggle')}</label>`
                 : '';
             return `
-            <div class="mod-item" data-mod-id="${mod.id}">
+            <div class="mod-item" data-mod-id="${escapeHtml(mod.id)}">
                 <span>${escapeHtml(mod.filename)}${mod.optional ? ` <span class="mod-item-badge">${t('modal.mods.optionalBadge')}</span>` : ''}</span>
                 ${optionalToggle}
-                ${currentModsModalIsOwner && mod.source === 'modrinth' ? `<button class="mod-item-update" data-mod-id="${mod.id}" title="${t('modal.mods.checkUpdate')}">↻</button>` : ''}
-                ${currentModsModalIsOwner ? `<button class="mod-item-remove" data-mod-id="${mod.id}" title="Quitar">&times;</button>` : ''}
+                ${currentModsModalIsOwner && mod.source === 'modrinth' ? `<button class="mod-item-update" data-mod-id="${escapeHtml(mod.id)}" title="${t('modal.mods.checkUpdate')}">↻</button>` : ''}
+                ${currentModsModalIsOwner ? `<button class="mod-item-remove" data-mod-id="${escapeHtml(mod.id)}" title="Quitar">&times;</button>` : ''}
             </div>
         `;
         }).join('')

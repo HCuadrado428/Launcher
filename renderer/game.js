@@ -23,7 +23,14 @@ playBtn.addEventListener('click', () => {
     consoleLogBox.innerText = '';
 });
 
+// El proceso principal confirma con un 'stopped' cuando el juego se ha
+// cerrado de verdad (o cuando ha cancelado un lanzamiento que todavía se
+// estaba preparando, que puede tardar hasta acabar el paso en curso).
 stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    if (progressWrap.style.display !== 'none') {
+        progressLabel.innerText = t('main.progress.cancelling');
+    }
     window.electronAPI.stopGame();
 });
 
@@ -40,7 +47,7 @@ window.electronAPI.onGameStatus((data) => {
     } else if (data.type === 'error') {
         showToast(data.message, 'error');
         resetToIdle();
-    } else if (data.type === 'java-warning') {
+    } else if (data.type === 'java-warning' || data.type === 'warning') {
         showToast(data.message, 'warning');
     } else if (data.type === 'version-fallback-warning') {
         showToast(data.message, 'warning');

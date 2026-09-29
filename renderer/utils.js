@@ -72,6 +72,21 @@ const SOURCE_LABELS = { curseforge: 'CurseForge', modrinth: 'Modrinth' };
 
 function extractInviteToken(raw) {
     const value = raw.trim();
-    const match = /^milauncher:\/\/invite\/(.+)$/.exec(value);
-    return match ? match[1] : value; // si no es un link completo, asumimos que ya es el token
+    const match = /^milauncher:\/\/invite\/([^/?#]+)\/?$/.exec(value);
+    if (!match) return value; // si no es un link completo, asumimos que ya es el token
+    try {
+        return decodeURIComponent(match[1]);
+    } catch (err) {
+        return match[1];
+    }
+}
+
+// La portada de un modpack la sube su dueño y llega del servidor tal cual.
+// Solo se acepta si es de verdad una imagen en base64 (lo que genera
+// "Elegir portada"); cualquier otra cosa se descarta en vez de meterla en un
+// atributo src.
+const SAFE_DATA_IMAGE_RE = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+function safeDataImageUri(value) {
+    return typeof value === 'string' && SAFE_DATA_IMAGE_RE.test(value) ? value : null;
 }

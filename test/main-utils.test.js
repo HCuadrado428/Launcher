@@ -13,11 +13,17 @@ const {
     compareVersionArrays,
     sha1File,
     runWithConcurrencyLimit,
+    sortVersionIdsNewestFirst,
+    isSafePathSegment,
+    assertSafePathSegment,
+    redactSecrets,
+    parseMclcLaunchFailure,
+    writeFileAtomicSync,
     formatBytesMain,
     getFreeDiskSpaceBytes
 } = require('../main/utils');
 
-const { requiredJavaMajorFor } = require('../main/java');
+const { requiredJavaMajorFor, isPlausibleJavaPath } = require('../main/java');
 
 test('parseVersionFromDirName extrae los números de un nombre de carpeta', () => {
     assert.deepEqual(parseVersionFromDirName('jdk-21.0.1'), [21, 0, 1]);
@@ -111,4 +117,85 @@ test('getFreeDiskSpaceBytes devuelve un número para una ruta real', () => {
     const bytes = getFreeDiskSpaceBytes(os.tmpdir());
     assert.equal(typeof bytes, 'number');
     assert.ok(bytes > 0);
+});
+
+test('sortVersionIdsNewestFirst pone primero la release más nueva, no el orden de readdir', () => {
+    assert.deepEqual(
+        sortVersionIdsNewestFirst(['1.20.1', '1.21.1', '1.9', '24w14a', '1.21']),
+        ['1.21.1', '1.21', '1.20.1', '1.9', '24w14a']
+    );
+    assert.deepEqual(sortVersionIdsNewestFirst([]), []);
+});
+
+test('isSafePathSegment solo acepta un nombre simple dentro de la carpeta', () => {
+    for (const ok of ['sodium-0.5.jar', 'Mi Pack (1).zip', '42', 42, 'a.b.c']) {
+        assert.ok(isSafePathSegment(ok), `debería aceptar ${JSON.stringify(ok)}`);
+    }
+    for (const bad of ['', '.', '..', '.. ', 'mod.jar.', 'mod.jar ', '../x.jar', 'a/b.jar', 'a\\b.jar',
+        'C:evil.jar', 'mod.jar:stream', 'nul\u0000.jar', 'x\n.jar', 'a'.repeat(256), null, undefined, {}, NaN]) {
+        assert.ok(!isSafePathSegment(bad), `debería rechazar ${JSON.stringify(bad)}`);
+    }
+});
+
+test('assertSafePathSegment devuelve el valor como texto o lanza con un mensaje claro', () => {
+    assert.equal(assertSafePathSegment(7, 'Id'), '7');
+    assert.throws(() => assertSafePathSegment('..', 'Id de modpack'), /Id de modpack no válido/);
+});
+
+test('redactSecrets tapa el access token de la línea de comandos de Minecraft', () => {
+    const line = '[MCLC]: Launching with arguments -Xmx4G --username Steve --accessToken eyJabc.def-123 --userType msa';
+    const redacted = redactSecrets(line);
+    assert.ok(!redacted.includes('eyJabc.def-123'));
+    assert.ok(redacted.includes('--accessToken ***'));
+    assert.ok(redacted.includes('--username Steve'));
+    assert.equal(redactSecrets('[--accessToken, abc123, --version]'), '[--accessToken, ***, --version]');
+    assert.equal(redactSecrets('línea normal'), 'línea normal');
+});
+
+test('parseMclcLaunchFailure extrae el motivo de los fallos de launch()', () => {
+    assert.equal(
+        parseMclcLaunchFailure("[MCLC]: Couldn't start Minecraft due to: Error: spawn java ENOENT"),
+        'Error: spawn java ENOENT'
+    );
+    assert.equal(
+        parseMclcLaunchFailure('[MCLC]: Failed to start due to Error: ENOENT: no such file, closing...'),
+        'Error: ENOENT: no such file'
+    );
+    assert.equal(parseMclcLaunchFailure('[MCLC]: Launching with arguments -Xmx4G'), null);
+});
+
+test('writeFileAtomicSync escribe y sobreescribe sin dejar temporales', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ember-atomic-'));
+    try {
+        const target = path.join(dir, 'config.json');
+        writeFileAtomicSync(target, '{"a":1}');
+        writeFileAtomicSync(target, Buffer.from('{"a":2}'));
+        assert.equal(fs.readFileSync(target, 'utf-8'), '{"a":2}');
+        assert.deepEqual(fs.readdirSync(dir), ['config.json']);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('isPlausibleJavaPath solo acepta ejecutables java/javaw sin caracteres de shell', () => {
+    for (const ok of [
+        'C:\\Program Files\\Eclipse Adoptium\\jdk-21\\bin\\javaw.exe',
+        'C:\\Program Files\\Java\\jre1.8.0_401\\bin\\java.exe',
+        '/usr/lib/jvm/java-21/bin/java',
+        'java'
+    ]) {
+        assert.ok(isPlausibleJavaPath(ok), `debería aceptar ${ok}`);
+    }
+    for (const bad of [
+        'C:\\Windows\\System32\\cmd.exe',
+        '/bin/sh',
+        'C:\\x" & calc & "\\java.exe',
+        '/tmp/$(touch pwned)/java',
+        '/tmp/`id`/java',
+        '',
+        '   ',
+        null
+    ]) {
+        assert.ok(!isPlausibleJavaPath(bad), `debería rechazar ${JSON.stringify(bad)}`);
+    }
 });

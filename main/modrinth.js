@@ -2,7 +2,11 @@
 // MODRINTH (búsqueda y resolución de mods/resource packs)
 // ============================================================================
 
-const MODRINTH_USER_AGENT = 'EmberLauncher/1.0 (github.com/HCuadrado428/Launcher)';
+const { version: APP_VERSION } = require('../package.json');
+
+// Modrinth pide un User-Agent que identifique la app y su versión. Se saca de
+// package.json (antes estaba fijo a mano y se quedaba desactualizado).
+const MODRINTH_USER_AGENT = `EmberLauncher/${APP_VERSION} (github.com/HCuadrado428/Launcher)`;
 
 // projectType: 'mod' | 'resourcepack' (coincide con el project_type de Modrinth).
 async function searchModrinth(query, mcVersion, loader, projectType) {

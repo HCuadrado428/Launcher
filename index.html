@@ -2,6 +2,15 @@
 <html>
 <head>
     <meta charset="UTF-8">
+    <!--
+        Todo el contenido que llega de fuera (nombres de modpacks, portadas,
+        resultados de Modrinth...) se pinta en esta página, que tiene acceso a
+        window.electronAPI. La CSP es la segunda barrera si algo se colara sin
+        escapar: no se ejecuta ningún script que no sea un archivo propio (ni
+        inline ni atributos onerror/onclick) y las imágenes solo pueden venir
+        de data: (portadas, skin, capturas) o del CDN de Modrinth.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.modrinth.com; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
     <title>Ember Launcher</title>
     <link rel="stylesheet" href="style.css">
 </head>

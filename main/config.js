@@ -1,6 +1,7 @@
 const { app, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { writeFileAtomicSync } = require('./utils');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
@@ -37,10 +38,23 @@ function readConfigFile() {
 
 function writeConfigFile(merged) {
     const json = JSON.stringify(merged, null, 2);
-    if (safeStorage.isEncryptionAvailable()) {
-        fs.writeFileSync(CONFIG_PATH, safeStorage.encryptString(json));
-    } else {
-        fs.writeFileSync(CONFIG_PATH, json);
+    const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(json) : json;
+    writeFileAtomicSync(CONFIG_PATH, data);
+}
+
+// Si config.json existe pero no se puede leer, se arranca con una config
+// vacía, y el siguiente guardado lo sobreescribía: se perdían todas las
+// cuentas sin dejar rastro. Ahora se aparta antes a config.corrupt-<fecha>.json
+// para poder recuperarlo a mano.
+function setAsideUnreadableConfig(err) {
+    if (err && err.code === 'ENOENT') return;
+    try {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupPath = path.join(path.dirname(CONFIG_PATH), `config.corrupt-${stamp}.json`);
+        fs.renameSync(CONFIG_PATH, backupPath);
+        console.error(`[ERROR] config.json no se pudo leer; se ha guardado una copia en ${backupPath}:`, err);
+    } catch (renameErr) {
+        console.error('[ERROR] config.json no se pudo leer ni apartar:', renameErr);
     }
 }
 
@@ -49,6 +63,7 @@ function loadConfig() {
         try {
             configCache = readConfigFile();
         } catch (err) {
+            setAsideUnreadableConfig(err);
             configCache = {};
         }
     }

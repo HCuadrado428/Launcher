@@ -82,7 +82,7 @@ async function ensureReleaseVersionsLoaded() {
     if (releaseVersionsCache) return releaseVersionsCache;
     const versions = await window.electronAPI.getReleaseVersions();
     releaseVersionsCache = versions;
-    newModpackVersion.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+    newModpackVersion.innerHTML = versions.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
     return versions;
 }
 
@@ -115,7 +115,7 @@ async function updateLoaderVersionOptions() {
 
         newModpackLoaderVersion.innerHTML = list.map(v => {
             const tag = v.recommended ? ` (${t('modpacks.create.loaderVersion.recommended')})` : '';
-            return `<option value="${v.version}">${v.version}${tag}</option>`;
+            return `<option value="${escapeHtml(v.version)}">${escapeHtml(v.version)}${tag}</option>`;
         }).join('');
 
         const recommended = list.find(v => v.recommended);
@@ -131,19 +131,21 @@ newModpackVersion.addEventListener('change', updateLoaderVersionOptions);
 
 function modpackItemHtml(pack, isOwner) {
     const icon = LOADER_ICONS[pack.loader] || '📦';
-    const iconHtml = pack.cover_image
-        ? `<img src="${pack.cover_image}" alt="">`
+    const coverUri = safeDataImageUri(pack.cover_image);
+    const iconHtml = coverUri
+        ? `<img src="${coverUri}" alt="">`
         : icon;
+    const id = escapeHtml(pack.id);
     return `
-        <div class="modpack-card" data-id="${pack.id}">
-            <div class="modpack-card-icon${pack.cover_image ? ' has-cover' : ''}">${iconHtml}</div>
+        <div class="modpack-card" data-id="${id}">
+            <div class="modpack-card-icon${coverUri ? ' has-cover' : ''}">${iconHtml}</div>
             <div class="modpack-card-info">
                 <div class="modpack-card-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader, pack.loader_version)}</div>
                 <div class="modpack-card-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
             </div>
             <div class="modpack-card-actions">
-                <button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-is-owner="${isOwner}">${isOwner ? t('modpacks.manage') : t('modpacks.manageShared')}</button>
-                <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
+                <button class="secondary manage-btn" data-id="${id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-is-owner="${isOwner}">${isOwner ? t('modpacks.manage') : t('modpacks.manageShared')}</button>
+                <button class="select-btn" data-id="${id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
             </div>
         </div>
     `;
@@ -287,10 +289,13 @@ redeemInviteBtn.addEventListener('click', async () => {
     }
 });
 
-// Cuando el sistema operativo abre un link milauncher://invite/TOKEN
+// Cuando el sistema operativo abre un link milauncher://invite/TOKEN. Se
+// pregunta antes de canjearlo: el link puede venir de cualquier web o chat,
+// y unirse a un modpack significa que sus mods se ejecutarán en este equipo.
 window.electronAPI.onInviteReceived((data) => {
     showScreen('mainScreen');
     modpacksPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!confirm(t('invite.deepLinkConfirm'))) return;
     loadModpacks();
     redeemInvite(data.token);
 });

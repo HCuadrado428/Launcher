@@ -1,15 +1,17 @@
 const crypto = require('crypto');
 const { loadConfig, saveConfig } = require('./config');
-const { fetchWithTimeout } = require('./httpUtils');
+const { fetchWithTimeout, isSafeToRetry, isAllowedBackendUrl } = require('./httpUtils');
 const { getMainWindow } = require('./windowState');
 
 // ============================================================================
 // CLIENTE DE LA API DEL SERVIDOR DE MODPACKS
 // ============================================================================
 
+const DEFAULT_BACKEND_URL = 'https://serverminecraft-production.up.railway.app';
+
 function getBackendUrl() {
-    const cfg = loadConfig();
-    return (cfg.backendUrl || 'https://serverminecraft-production.up.railway.app/').replace(/\/+$/, '');
+    const custom = (loadConfig().backendUrl || '').replace(/\/+$/, '');
+    return custom && isAllowedBackendUrl(custom) ? custom : DEFAULT_BACKEND_URL;
 }
 
 // Hace una petición autenticada al backend. Lanza un error legible si algo
@@ -20,7 +22,11 @@ function getBackendUrl() {
 // red antes de que termine de arrancar. En ese caso reintentamos un par de
 // veces con espera creciente antes de rendirnos; un error HTTP normal (404,
 // 403, 400...) NO se reintenta, porque reintentar no lo va a arreglar y hay
-// que propagarlo tal cual para que el renderer lo muestre.
+// que propagarlo tal cual para que el renderer lo muestre. Un POST solo se
+// reintenta si es seguro que no llegó al servidor (ver isSafeToRetry).
+//
+// pathname debe construirse con apiPath`...` (httpUtils) cuando lleva ids o
+// tokens, para que vayan escapados.
 async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {}) {
     const cfg = loadConfig();
     if (!cfg.session || !cfg.session.token) {
@@ -40,7 +46,7 @@ async function apiRequest(pathname, { method = 'GET', body, isForm = false } = {
         try {
             res = await fetchWithTimeout(`${getBackendUrl()}${pathname}`, { method, headers, body: payload });
         } catch (networkErr) {
-            if (attempt === MAX_ATTEMPTS) throw networkErr;
+            if (attempt === MAX_ATTEMPTS || !isSafeToRetry(method, networkErr)) throw networkErr;
             await new Promise((resolve) => setTimeout(resolve, attempt * 3000));
             continue;
         }

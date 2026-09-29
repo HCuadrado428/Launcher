@@ -11,10 +11,10 @@ async function currentInstanceIdForServers() {
 
 function favoriteServerItemHtml(server) {
     return `
-        <div class="mod-item" data-id="${server.id}">
+        <div class="mod-item" data-id="${escapeHtml(server.id)}">
             <span>${escapeHtml(server.name)} · ${escapeHtml(server.address)}</span>
-            <button class="mod-item-update" data-id="${server.id}" data-address="${escapeHtml(server.address)}" title="${t('servers.copy')}">📋</button>
-            <button class="mod-item-remove" data-id="${server.id}" title="${t('servers.remove')}">&times;</button>
+            <button class="mod-item-update" data-id="${escapeHtml(server.id)}" data-address="${escapeHtml(server.address)}" title="${t('servers.copy')}">📋</button>
+            <button class="mod-item-remove" data-id="${escapeHtml(server.id)}" title="${t('servers.remove')}">&times;</button>
         </div>
     `;
 }

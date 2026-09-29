@@ -12,9 +12,13 @@ function renderAccount(account) {
             // respaldo si Crafatar está caído, exige una cabecera
             // User-Agent propia que un <img> normal no puede mandar.
             window.electronAPI.getSkinRender(account.uuid).then((dataUri) => {
-                if (!dataUri || currentAccount !== account) return;
+                const safeUri = safeDataImageUri(dataUri);
+                if (!safeUri || currentAccount !== account) return;
+                const img = document.createElement('img');
+                img.src = safeUri;
+                img.alt = '';
                 avatar.classList.add('avatar-render');
-                avatar.innerHTML = `<img src="${dataUri}" alt="">`;
+                avatar.replaceChildren(img);
             });
         } else {
             avatar.classList.remove('avatar-render');
@@ -105,13 +109,13 @@ async function renderAccountsList() {
         return;
     }
     accountsList.innerHTML = accounts.map((a) => `
-        <div class="account-row ${currentAccount && currentAccount.id === a.id ? 'active' : ''}" data-id="${a.id}">
+        <div class="account-row ${currentAccount && currentAccount.id === a.id ? 'active' : ''}" data-id="${escapeHtml(a.id)}">
             <div class="account-row-info">
-                <div class="account-row-name">${a.username}</div>
+                <div class="account-row-name">${escapeHtml(a.username)}</div>
                 <div class="account-row-type">${a.type === 'microsoft' ? t('account.ms') : t('account.offline')}</div>
             </div>
-            <button class="secondary use-account-btn" data-id="${a.id}" ${currentAccount && currentAccount.id === a.id ? 'disabled' : ''}>${t('accounts.use')}</button>
-            <button class="danger remove-account-btn" data-id="${a.id}">${t('accounts.remove')}</button>
+            <button class="secondary use-account-btn" data-id="${escapeHtml(a.id)}" ${currentAccount && currentAccount.id === a.id ? 'disabled' : ''}>${t('accounts.use')}</button>
+            <button class="danger remove-account-btn" data-id="${escapeHtml(a.id)}">${t('accounts.remove')}</button>
         </div>
     `).join('');
 }

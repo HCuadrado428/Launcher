@@ -12,6 +12,7 @@ const nodeGlobals = {
     FormData: 'readonly',
     Blob: 'readonly',
     AbortController: 'readonly',
+    URL: 'readonly',
     URLSearchParams: 'readonly',
     setTimeout: 'readonly',
     clearTimeout: 'readonly',
