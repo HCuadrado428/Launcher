@@ -6,7 +6,8 @@ const yazl = require('yazl');
 const { instanceDir, instanceModsDir, instanceResourcePacksDir } = require('../paths');
 const { runWithConcurrencyLimit, formatBytesMain } = require('../utils');
 const { apiPath } = require('../httpUtils');
-const { saveConfig } = require('../config');
+const { loadConfig, saveConfig } = require('../config');
+const { curseForgeFingerprint, namesForFingerprints } = require('../curseforge');
 const { apiRequest, uploadForm } = require('../backend');
 const { getLoaderVersionsForMc } = require('../loaders');
 const { isSupportedLoader } = require('../loaderVersions');
@@ -44,7 +45,29 @@ const COVER_MAX_BYTES = 250 * 1024;
 // Se guarda en memoria entre el escaneo y la importación para no tener que
 // volver a mandar (ni recalcular) la lista completa de mods resueltos por
 // IPC dos veces.
-let lastScannedModrinthInstances = [];
+let lastScannedInstances = [];
+
+// Nombres legibles de los mods que no se pudieron añadir (no están en
+// Modrinth), para que el jugador sepa cuáles tendrá que añadir a mano. En
+// instancias de CurseForge, con la API key del propio usuario se piden sus
+// nombres reales a CurseForge; si no, se usa el nombre del archivo.
+async function unresolvedModNames(instance) {
+    const files = instance.unresolvedFiles || [];
+    const apiKey = loadConfig().curseforgeApiKey;
+    if (instance.source !== 'curseforge' || !apiKey || files.length === 0) return files;
+    try {
+        const byFingerprint = new Map();
+        for (const fileName of files) {
+            const data = await fs.promises.readFile(path.join(instance.path, 'mods', fileName));
+            byFingerprint.set(curseForgeFingerprint(data), fileName);
+        }
+        const names = await namesForFingerprints([...byFingerprint.keys()], apiKey);
+        return [...byFingerprint.entries()].map(([fingerprint, fileName]) => names[fingerprint] || fileName);
+    } catch (err) {
+        console.warn('[WARN] No se pudieron consultar los nombres en CurseForge:', err.message);
+        return files;
+    }
+}
 
 function registerModpacksIpc() {
     ipcMain.handle('get-loader-versions', (event, { loader, mcVersion } = {}) => getLoaderVersionsForMc(loader, mcVersion));
@@ -152,21 +175,20 @@ function registerModpacksIpc() {
     // --- Importar instancias locales (CurseForge App / Modrinth App) ---
 
     ipcMain.handle('scan-local-modpacks', async () => {
-        const curseforge = findCurseForgeInstances();
-        const modrinth = await findModrinthInstances();
-        lastScannedModrinthInstances = modrinth;
-        // No se manda resolvedMods (puede ser una lista larga) al renderer,
-        // solo lo necesario para la lista; se recupera por "path" al importar.
-        return [...curseforge, ...modrinth.map(({ resolvedMods, ...rest }) => rest)];
+        const instances = [...await findCurseForgeInstances(), ...await findModrinthInstances()];
+        lastScannedInstances = instances;
+        // No se mandan las listas de mods (pueden ser largas) al renderer,
+        // solo lo necesario para la lista; se recuperan por "path" al importar.
+        return instances.map(({ resolvedMods, unresolvedFiles, ...rest }) => rest);
     });
 
     ipcMain.handle('import-local-modpack', async (event, { instancePath } = {}) => {
-        const instance = lastScannedModrinthInstances.find((i) => i.path === instancePath);
+        const instance = lastScannedInstances.find((i) => i.path === instancePath);
         if (!instance) throw new Error(tm('sys.instanceNotFound'));
 
         const created = await apiRequest('/api/modpacks', {
             method: 'POST',
-            body: { name: instance.name, mc_version: instance.mcVersion, loader: instance.loader, loader_version: '' }
+            body: { name: instance.name, mc_version: instance.mcVersion, loader: instance.loader, loader_version: instance.loaderVersion || '' }
         });
 
         let imported = 0;
@@ -192,7 +214,13 @@ function registerModpacksIpc() {
             });
         });
 
-        return { modpack: created, imported, skipped, unresolvedCount: instance.modCount - instance.resolvedCount };
+        return {
+            modpack: created,
+            imported,
+            skipped,
+            unresolvedCount: instance.unresolvedFiles.length,
+            unresolvedNames: await unresolvedModNames(instance)
+        };
     });
 
     // --- Invitaciones, accesos e historial ---

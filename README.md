@@ -4,14 +4,14 @@ Launcher de Minecraft para Windows hecho con Electron. Permite jugar en vanilla 
 
 ## Funciones
 
-- Cuentas Microsoft y offline, con varias cuentas guardadas y credenciales cifradas (`safeStorage`).
+- Cuentas Microsoft y offline, con varias cuentas guardadas y credenciales cifradas (`safeStorage`). La sesión de Microsoft se renueva sola antes de cada partida.
 - Modpacks compartidos: crear, invitar (`milauncher://invite/...`), gestionar accesos, historial de versiones, mods opcionales y config compartida.
-- Forge y Fabric con la versión que elija el dueño; búsqueda e instalación de mods y resource packs desde Modrinth.
+- Forge, NeoForge, Fabric y Quilt con la versión que elija el dueño; búsqueda de mods y resource packs en Modrinth, con actualización y dependencias obligatorias a un clic.
 - **Java automático:** si el campo de Java se deja vacío, se descarga el runtime oficial de Mojang que necesita cada versión de Minecraft (Java 8, 17, 21...).
-- Sincronización con comprobación de sha1, reparación y verificación de la instalación, y assets/librerías compartidos entre instancias.
-- Importación de instancias de Modrinth App (y detección de las de CurseForge App).
-- Consola del juego, crash logs guardados con pista sobre la causa más probable, galería de capturas, exportación de mundos y de modpacks.
-- Servidores favoritos con botón para entrar directamente.
+- Sincronización con comprobación de sha1, reparación y verificación, assets/librerías compartidos entre instancias, resumen de novedades y copia de los mundos antes de cambios que pueden estropearlos.
+- Importar y exportar `.mrpack` (Modrinth App, Prism, ATLauncher...) e importar instancias de Modrinth App y CurseForge App (los mods se añaden desde Modrinth; con tu API key de CurseForge te dice cuáles faltan).
+- Consola del juego, crash logs con pista sobre la causa más probable, `launcher.log` para diagnosticar el launcher, galería de capturas y exportación de mundos.
+- Servidores favoritos con botón para entrar directamente, RAM recomendada por instalación y opción de ocultar el launcher mientras juegas.
 - Interfaz en español, inglés, francés, alemán y portugués.
 
 ## Desarrollo
@@ -56,10 +56,14 @@ preload.js              API expuesta al renderer (window.electronAPI)
 main/
   ipc/                  Manejadores IPC: accounts, modpacks, files (capturas, mundos, servidores)
   game.js               Lanzar/detener el juego, crash logs, tiempo jugado
+  gameLauncher.js       Instalar la versión y lanzar con @xmcl/core
   modpackSync.js        Sincronizar, reparar y verificar instancias de modpacks
   syncPlan.js           Qué descargar/borrar en cada sincronización (lógica pura)
   javaRuntime.js        Java automático (runtimes oficiales de Mojang)
-  loaders.js            Instalación de Forge/Fabric (@xmcl/installer)
+  loaders.js            Instalación de Forge/NeoForge/Fabric/Quilt (@xmcl/installer)
+  mrpack.js             Importar/exportar .mrpack
+  modUpdates.js         Actualizar mods y añadir dependencias desde Modrinth
+  msAuth.js             Renovar la sesión de Microsoft
   backend.js            Cliente de la API del backend de modpacks
   i18nMain.js           Traducciones del proceso principal (claves sys.* de i18n.js)
   ...                   Utilidades puras con tests (httpUtils, gameOptions, crashAnalysis...)
@@ -78,5 +82,6 @@ e2e/                    Smoke test de extremo a extremo (Electron + Playwright)
 ## Dónde guarda las cosas
 
 - Config y cuentas: `config.json` (cifrado) en la carpeta de datos de la app (`app.getPath('userData')`, dentro de `%APPDATA%` en Windows).
-- Crash logs: `crash-logs/` en esa misma carpeta (también se abre desde la consola del juego).
+- Crash logs y `launcher.log`: `crash-logs/` en esa misma carpeta (se abre desde la consola del juego).
+- Copias automáticas de los mundos: `backups/` dentro de la carpeta de cada modpack.
 - Juego, instancias y runtimes de Java: `%APPDATA%/.milauncher/`.

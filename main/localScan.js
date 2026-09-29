@@ -2,12 +2,12 @@ const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { runWithConcurrencyLimit, sha1File } = require('./utils');
-const { MODRINTH_USER_AGENT } = require('./modrinth');
-const { fetchWithTimeout } = require('./httpUtils');
+const { getVersionsByHashes } = require('./modrinth');
+const { parseCurseForgeLoader } = require('./curseforge');
+const { isSupportedLoader } = require('./loaderVersions');
 
 // ============================================================================
-// DETECCIÓN E IMPORTACIÓN DE MODPACKS INSTALADOS LOCALMENTE
-// (CurseForge App / Modrinth App)
+// DETECCIÓN DE MODPACKS INSTALADOS LOCALMENTE (CurseForge App / Modrinth App)
 // ============================================================================
 
 function mostCommon(arr) {
@@ -17,107 +17,117 @@ function mostCommon(arr) {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
-// Solo detecta las instancias de CurseForge (para avisar de que existen);
-// importarlas de verdad requiere una API key de CurseForge que todavía no
-// está activada (ver sección de CurseForge más abajo).
-function findCurseForgeInstances() {
-    const baseDir = path.join(app.getPath('home'), 'curseforge', 'minecraft', 'Instances');
-    if (!fs.existsSync(baseDir)) return [];
-
-    const instances = [];
-    let entries;
+function listSubdirectories(baseDir) {
     try {
-        entries = fs.readdirSync(baseDir, { withFileTypes: true }).filter((d) => d.isDirectory());
+        return fs.readdirSync(baseDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
     } catch (err) {
         return [];
     }
+}
 
-    for (const entry of entries) {
-        const jsonPath = path.join(baseDir, entry.name, 'minecraftinstance.json');
-        if (!fs.existsSync(jsonPath)) continue;
+// Identifica los .jar de la carpeta mods/ de una instancia en Modrinth por
+// su sha1 (tanto Modrinth App como la app de CurseForge suelen tener
+// exactamente el mismo archivo que Modrinth publica). Devuelve los mods
+// resueltos (para añadirlos desde Modrinth) y la lista de archivos que no
+// se reconocieron.
+async function scanModsFolder(modsDir) {
+    let jarFiles;
+    try {
+        jarFiles = fs.readdirSync(modsDir).filter((f) => f.toLowerCase().endsWith('.jar'));
+    } catch (err) {
+        return { jarFiles: [], resolvedMods: [], unresolvedFiles: [] };
+    }
+
+    const hashed = [];
+    await runWithConcurrencyLimit(jarFiles, 8, async (fileName) => {
         try {
-            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
-            instances.push({
-                source: 'curseforge',
-                name: data.name || entry.name,
-                mcVersion: data.gameVersion || '',
-                loader: (data.baseModLoader && data.baseModLoader.name) || '',
-                modCount: (data.installedAddons || []).length,
-                importable: false,
-                path: path.join(baseDir, entry.name)
-            });
-        } catch (err) {
-            console.warn(`[WARN] No se pudo leer minecraftinstance.json en ${entry.name}:`, err.message);
+            hashed.push({ fileName, sha1: await sha1File(path.join(modsDir, fileName)) });
+        } catch (err) { /* archivo ilegible, se ignora */ }
+    });
+
+    let byHash = {};
+    try {
+        byHash = await getVersionsByHashes(hashed.map((h) => h.sha1));
+    } catch (err) {
+        console.warn(`[WARN] No se pudieron resolver los mods de ${modsDir} en Modrinth:`, err.message);
+    }
+
+    const resolvedMods = [];
+    const unresolvedFiles = [];
+    for (const { fileName, sha1 } of hashed) {
+        const version = byHash[sha1];
+        if (version) {
+            resolvedMods.push({ projectId: version.project_id, versionId: version.id, loaders: version.loaders, gameVersions: version.game_versions });
+        } else {
+            unresolvedFiles.push(fileName);
         }
+    }
+    return { jarFiles, resolvedMods, unresolvedFiles };
+}
+
+function instanceSummary({ source, name, instancePath, mcVersion, loader, loaderVersion, scan }) {
+    return {
+        source,
+        name,
+        mcVersion: mcVersion || '',
+        loader: isSupportedLoader(loader) ? loader : 'vanilla',
+        loaderVersion: loaderVersion || '',
+        modCount: scan.jarFiles.length,
+        resolvedCount: scan.resolvedMods.length,
+        importable: Boolean(mcVersion && scan.resolvedMods.length > 0),
+        path: instancePath,
+        resolvedMods: scan.resolvedMods,
+        unresolvedFiles: scan.unresolvedFiles
+    };
+}
+
+// Instancias de la app de CurseForge: versión y loader salen de su
+// minecraftinstance.json; los mods, de su carpeta mods/.
+async function findCurseForgeInstances() {
+    const baseDir = path.join(app.getPath('home'), 'curseforge', 'minecraft', 'Instances');
+    const instances = [];
+    for (const dirName of listSubdirectories(baseDir)) {
+        const instancePath = path.join(baseDir, dirName);
+        let data;
+        try {
+            data = JSON.parse(fs.readFileSync(path.join(instancePath, 'minecraftinstance.json'), 'utf-8'));
+        } catch (err) {
+            continue;
+        }
+        const { loader, loaderVersion } = parseCurseForgeLoader(data.baseModLoader && data.baseModLoader.name);
+        const scan = await scanModsFolder(path.join(instancePath, 'mods'));
+        if (scan.jarFiles.length === 0) continue;
+        instances.push(instanceSummary({
+            source: 'curseforge',
+            name: data.name || dirName,
+            instancePath,
+            mcVersion: data.gameVersion,
+            loader,
+            loaderVersion,
+            scan
+        }));
     }
     return instances;
 }
 
-// Identifica los mods de cada perfil de Modrinth App por el sha1 de sus
-// .jar (la app ya no guarda metadatos legibles por perfil, todo vive en un
-// app.db sqlite sin esquema documentado).
+// Perfiles de Modrinth App: la app ya no guarda metadatos legibles por
+// perfil (todo vive en un app.db sqlite sin esquema documentado), así que
+// versión y loader se deducen de los propios mods.
 async function findModrinthInstances() {
     const baseDir = path.join(app.getPath('appData'), 'ModrinthApp', 'profiles');
-    if (!fs.existsSync(baseDir)) return [];
-
-    let entries;
-    try {
-        entries = fs.readdirSync(baseDir, { withFileTypes: true }).filter((d) => d.isDirectory());
-    } catch (err) {
-        return [];
-    }
-
     const instances = [];
-    for (const entry of entries) {
-        const modsDir = path.join(baseDir, entry.name, 'mods');
-        if (!fs.existsSync(modsDir)) continue;
-
-        const jarFiles = fs.readdirSync(modsDir).filter((f) => f.toLowerCase().endsWith('.jar'));
-        if (jarFiles.length === 0) continue;
-
-        const hashes = [];
-        await runWithConcurrencyLimit(jarFiles, 8, async (file) => {
-            try {
-                hashes.push(await sha1File(path.join(modsDir, file)));
-            } catch (err) { /* archivo ilegible, se ignora */ }
-        });
-
-        let resolvedMods = [];
-        if (hashes.length > 0) {
-            try {
-                const res = await fetchWithTimeout('https://api.modrinth.com/v2/version_files', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'User-Agent': MODRINTH_USER_AGENT },
-                    body: JSON.stringify({ hashes, algorithm: 'sha1' })
-                }, 30000);
-                if (res.ok) {
-                    const map = await res.json();
-                    resolvedMods = Object.values(map).map((version) => ({
-                        projectId: version.project_id,
-                        versionId: version.id,
-                        loaders: version.loaders,
-                        gameVersions: version.game_versions
-                    }));
-                }
-            } catch (err) {
-                console.warn(`[WARN] No se pudieron resolver hashes de Modrinth para ${entry.name}:`, err.message);
-            }
-        }
-
-        const mcVersion = mostCommon(resolvedMods.flatMap((m) => m.gameVersions || []));
-        const loader = mostCommon(resolvedMods.flatMap((m) => m.loaders || []));
-
-        instances.push({
+    for (const dirName of listSubdirectories(baseDir)) {
+        const instancePath = path.join(baseDir, dirName);
+        const scan = await scanModsFolder(path.join(instancePath, 'mods'));
+        if (scan.jarFiles.length === 0) continue;
+        instances.push(instanceSummary({
             source: 'modrinth',
-            name: entry.name,
-            mcVersion: mcVersion || '',
-            loader: loader || '',
-            modCount: jarFiles.length,
-            resolvedCount: resolvedMods.length,
-            importable: Boolean(mcVersion && resolvedMods.length > 0),
-            path: path.join(baseDir, entry.name),
-            resolvedMods
-        });
+            name: dirName,
+            instancePath,
+            mcVersion: mostCommon(scan.resolvedMods.flatMap((m) => m.gameVersions || [])),
+            loader: mostCommon(scan.resolvedMods.flatMap((m) => m.loaders || [])),
+            scan
+        }));
     }
     return instances;
 }
