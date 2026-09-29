@@ -363,6 +363,7 @@ async function checkLocalInstanceHealth(modpackId) {
 }
 
 module.exports = {
+    loadInstanceMeta,
     syncModpack,
     repairModpack,
     verifyModpackFiles,

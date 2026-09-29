@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     repairModpack: (id) => invoke('modpacks-repair', { id }),
     verifyModpackFiles: (id) => invoke('modpacks-verify-files', { id }),
     exportModpack: (id, name) => invoke('modpacks-export', { id, name }),
+    exportModpackMrpack: (id, name) => invoke('modpacks-export-mrpack', { id, name }),
+    importMrpack: () => invoke('import-mrpack'),
     setModpackCover: (id) => invoke('modpacks-set-cover', { id }),
     shareModpackConfig: (id) => invoke('modpacks-share-config', { id }),
     removeSharedConfig: (id) => invoke('modpacks-remove-config', { id }),

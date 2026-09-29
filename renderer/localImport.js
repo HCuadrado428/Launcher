@@ -91,6 +91,31 @@ async function importLocalModpack(instancePath, buttonEl) {
     }
 }
 
+importMrpackBtn.addEventListener('click', async () => {
+    const originalText = importMrpackBtn.innerText;
+    importMrpackBtn.disabled = true;
+    const removeProgressListener = window.electronAPI.onModpackSyncProgress((data) => {
+        importMrpackBtn.innerText = `${data.percent}%`;
+    });
+    try {
+        const result = await window.electronAPI.importMrpack();
+        if (!result.cancelled) {
+            let message = t('import.mrpack.success', { name: result.modpack.name, count: result.fromModrinth + result.uploaded });
+            if (result.skipped > 0) message += ' ' + t('import.partial', { count: result.skipped });
+            if (result.configShared) message += ' ' + t('import.mrpack.configShared');
+            showToast(message, 'info');
+            importModal.classList.remove('active');
+            loadModpacks();
+        }
+    } catch (err) {
+        showToast(err.message || t('import.failed'), 'error');
+    } finally {
+        removeProgressListener();
+        importMrpackBtn.disabled = false;
+        importMrpackBtn.innerText = originalText;
+    }
+});
+
 saveCurseforgeApiKeyBtn.addEventListener('click', async () => {
     await window.electronAPI.setCurseForgeApiKey(curseforgeApiKeyInput.value.trim());
     showToast(t('import.curseforgeKey.saved'), 'info');

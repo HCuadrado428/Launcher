@@ -12,6 +12,7 @@ const { getLoaderVersionsForMc } = require('../loaders');
 const { isSupportedLoader } = require('../loaderVersions');
 const { searchModrinth } = require('../modrinth');
 const { addModFromModrinth, addModrinthDependencies, updateMod } = require('../modUpdates');
+const { exportMrpack, importMrpack } = require('../mrpack');
 const { findCurseForgeInstances, findModrinthInstances } = require('../localScan');
 const { syncModpack, repairModpack, verifyModpackFiles, wipeInstanceAfterLeaving, checkLocalInstanceHealth } = require('../modpackSync');
 const { assertInstanceNotInUse } = require('../game');
@@ -240,6 +241,28 @@ function registerModpacksIpc() {
             + await addDirToZip(zipfile, instanceResourcePacksDir(id), 'resourcepacks');
         await writeZip(zipfile, result.filePath);
         return { cancelled: false, filePath: result.filePath, fileCount };
+    });
+
+    // .mrpack (formato de Modrinth): exportar la instalación local para
+    // abrirla en otros launchers, o crear un modpack nuevo desde uno.
+    ipcMain.handle('modpacks-export-mrpack', async (event, { id, name } = {}) => {
+        const result = await dialog.showSaveDialog(getMainWindow(), {
+            title: tm('sys.dialog.exportModpack'),
+            defaultPath: `${safeFileBaseName(name, 'modpack')}.mrpack`,
+            filters: [{ name: tm('sys.dialog.mrpackFilter'), extensions: ['mrpack'] }]
+        });
+        if (result.canceled || !result.filePath) return { cancelled: true };
+        return { cancelled: false, ...(await exportMrpack(id, name, result.filePath)) };
+    });
+
+    ipcMain.handle('import-mrpack', async () => {
+        const result = await dialog.showOpenDialog(getMainWindow(), {
+            title: tm('sys.dialog.importMrpack'),
+            properties: ['openFile'],
+            filters: [{ name: tm('sys.dialog.mrpackFilter'), extensions: ['mrpack'] }]
+        });
+        if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
+        return { cancelled: false, ...(await importMrpack(result.filePaths[0])) };
     });
 
     ipcMain.handle('modpacks-set-cover', async (event, { id } = {}) => {

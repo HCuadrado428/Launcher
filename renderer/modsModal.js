@@ -131,6 +131,7 @@ async function refreshModpackHealth(id) {
     // que empaquetar todavía.
     verifyModpackBtn.style.display = synced ? '' : 'none';
     exportModpackBtn.style.display = synced ? '' : 'none';
+    exportMrpackBtn.style.display = synced ? '' : 'none';
     if (!synced) return;
 
     if (result.healthy) {
@@ -479,6 +480,21 @@ exportModpackBtn.addEventListener('click', async () => {
         showToast(err.message || t('toast.modpackExportFailed'), 'error');
     } finally {
         exportModpackBtn.disabled = false;
+    }
+});
+
+exportMrpackBtn.addEventListener('click', async () => {
+    if (!currentModsModalId) return;
+    exportMrpackBtn.disabled = true;
+    try {
+        const result = await window.electronAPI.exportModpackMrpack(currentModsModalId, currentModsModalName);
+        if (!result.cancelled) {
+            showToast(t('toast.mrpackExported', { linked: result.linked, included: result.included }), 'info');
+        }
+    } catch (err) {
+        showToast(err.message || t('toast.modpackExportFailed'), 'error');
+    } finally {
+        exportMrpackBtn.disabled = false;
     }
 });
 
