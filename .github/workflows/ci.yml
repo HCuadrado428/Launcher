@@ -7,7 +7,44 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+
   test:
+    # La app es para Windows (junctions, rutas, bloqueo de archivos en uso),
+    # así que los tests corren también ahí, no solo en Linux.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Los tests no abren Electron: no hace falta descargar su binario.
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test
+      # No bloqueante: minecraft-launcher-core arrastra "request" deprecado y
+      # @xmcl/installer una versión antigua de undici. Se deja para que
+      # aparezca en los logs de cada build sin tumbar la CI.
+      - run: npm audit --omit=dev --audit-level=high
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+
+  e2e:
+    # Abre la app de verdad (Electron + Playwright) sin red y recorre lo
+    # básico: login offline, CSP, navegación bloqueada, servidores favoritos.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,17 +52,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      # No bloqueante: minecraft-launcher-core (usado de verdad para lanzar
-      # el juego) arrastra "request" deprecado, y @xmcl/installer una
-      # versión antigua de undici; arreglarlo de raíz implica sustituir
-      # minecraft-launcher-core o forzar un downgrade con breaking changes
-      # de @xmcl/installer. Se deja aquí igualmente para que aparezca en los
-      # logs de cada build y no se nos olvide, sin tumbar la CI mientras
-      # tanto.
-      - run: npm audit --audit-level=high
-        continue-on-error: true
+      - run: xvfb-run -a npm run test:e2e
 
   pack:
     # electron-builder firma el .exe con signtool.exe, así que la validación

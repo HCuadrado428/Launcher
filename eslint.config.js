@@ -72,6 +72,14 @@ module.exports = [
         }
     },
     {
+        // El smoke test E2E corre en Node, pero las funciones que pasa a
+        // win.evaluate() se ejecutan dentro de la página.
+        files: ['e2e/**/*.js'],
+        languageOptions: {
+            globals: { ...nodeGlobals, ...browserGlobals }
+        }
+    },
+    {
         ignores: ['node_modules/**', 'dist/**']
     }
 ];

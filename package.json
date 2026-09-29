@@ -10,7 +10,8 @@
     "pack": "electron-builder --dir",
     "release": "electron-builder --win --publish always",
     "test": "node --test",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:e2e": "node --test e2e/smoke.js"
   },
   "engines": {
     "node": ">=22.12"
@@ -32,7 +33,8 @@
     "@eslint/js": "^10.0.1",
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3",
-    "eslint": "^10.7.0"
+    "eslint": "^10.7.0",
+    "playwright-core": "^1.63.0"
   },
   "build": {
     "appId": "com.hcuadrado428.milauncher",
@@ -41,6 +43,7 @@
       "**/*",
       "!**/*.map",
       "!test/**",
+      "!e2e/**",
       "!.github/**",
       "!.claude/**",
       "!eslint.config.js",

@@ -22,6 +22,7 @@ Requisitos: Node.js 22.12 o superior.
 npm install
 npm start          # abre el launcher en modo desarrollo
 npm test           # tests (node --test)
+npm run test:e2e   # abre la app con Playwright y prueba lo básico (en Linux: xvfb-run -a npm run test:e2e)
 npm run lint       # ESLint
 npm run pack       # empaqueta sin instalador (dist/)
 npm run dist       # instalador NSIS para Windows
@@ -49,6 +50,7 @@ main/
 renderer/               Scripts de la interfaz (scripts clásicos, cargados en orden en index.html)
 i18n.js                 Diccionario de traducciones de toda la app
 test/                   Tests de node:test
+e2e/                    Smoke test de extremo a extremo (Electron + Playwright)
 ```
 
 ## Seguridad
