@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     onModpackDownloadEstimate: (callback) => ipcRenderer.on('modpack-download-estimate', (_event, data) => callback(data)),
     checkModUpdate: (id, modId) => invoke('modpacks-check-mod-update', { id, modId }),
+    updateMod: (id, modId, mcVersion, loader) => invoke('modpacks-update-mod', { id, modId, mcVersion, loader }),
+    addModrinthDependencies: (id, projectIds, mcVersion, loader) => invoke('add-modrinth-dependencies', { id, projectIds, mcVersion, loader }),
 
     // Invitaciones y acceso (solo el dueño puede usarlas de verdad; el
     // backend las rechaza igualmente si no lo es)

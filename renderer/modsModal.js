@@ -227,10 +227,17 @@ modsList.addEventListener('click', async (e) => {
     } else if (updateBtn) {
         updateBtn.disabled = true;
         try {
-            const result = await window.electronAPI.checkModUpdate(currentModsModalId, updateBtn.dataset.modId);
-            showToast(result.has_update
-                ? t('modal.mods.updateAvailable', { version: result.latest_version_number || '' })
-                : t('modal.mods.upToDate'), 'info');
+            const modpackId = currentModsModalId;
+            const modId = updateBtn.dataset.modId;
+            const result = await window.electronAPI.checkModUpdate(modpackId, modId);
+            if (result.has_update) {
+                showToast(t('modal.mods.updateAvailable', { version: result.latest_version_number || '' }), 'info', {
+                    label: t('modal.mods.updateNow'),
+                    onClick: () => applyModUpdate(modpackId, modId)
+                });
+            } else {
+                showToast(t('modal.mods.upToDate'), 'info');
+            }
         } catch (err) {
             showToast(err.message || t('modal.mods.updateCheckFailed'), 'error');
         } finally {
@@ -238,6 +245,18 @@ modsList.addEventListener('click', async (e) => {
         }
     }
 });
+
+// Sustituye el mod por la versión más reciente compatible (ver
+// main/modUpdates.js) y recarga la lista si el modal sigue en ese modpack.
+async function applyModUpdate(modpackId, modId) {
+    try {
+        const result = await window.electronAPI.updateMod(modpackId, modId, currentModsModalMcVersion, currentModsModalLoader);
+        showToast(result.updated ? t('modal.mods.updated', { version: result.version || '' }) : t('modal.mods.upToDate'), 'info');
+        if (currentModsModalId === modpackId) await reloadModsList();
+    } catch (err) {
+        showToast(err.message || t('modal.mods.updateFailed'), 'error');
+    }
+}
 
 modsList.addEventListener('change', async (e) => {
     const cb = e.target.closest('.mod-item-optional-checkbox');

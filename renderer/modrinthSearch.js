@@ -38,6 +38,35 @@ async function runModrinthSearch() {
     }
 }
 
+// Si al mod le faltan dependencias obligatorias, se ofrece añadirlas todas
+// con un clic. Si el proceso principal no pudo calcularlas, se enseña al
+// menos la lista de nombres que devuelva el servidor.
+function offerMissingDependencies(result) {
+    const deps = (result && result.missingDependencies) || [];
+    if (deps.length) {
+        const modpackId = currentModsModalId;
+        showToast(t('modal.modrinth.missingDependencies', { names: deps.map((d) => d.title).join(', ') }), 'warning', {
+            label: t('modal.modrinth.addDependencies', { count: deps.length }),
+            onClick: () => addDependencies(modpackId, deps.map((d) => d.projectId))
+        });
+    } else if (result && result.missing_dependencies && result.missing_dependencies.length) {
+        showToast(t('modal.modrinth.missingDependencies', { names: result.missing_dependencies.join(', ') }), 'warning');
+    }
+}
+
+async function addDependencies(modpackId, projectIds) {
+    try {
+        const { added, failed } = await window.electronAPI.addModrinthDependencies(
+            modpackId, projectIds, currentModsModalMcVersion, currentModsModalLoader
+        );
+        if (added.length) showToast(t('modal.modrinth.dependenciesAdded', { count: added.length }), 'info');
+        if (failed.length) showToast(t('modal.modrinth.dependenciesFailed', { names: failed.join(', ') }), 'error');
+        if (currentModsModalId === modpackId) await reloadModsList();
+    } catch (err) {
+        showToast(err.message || t('toast.modrinthAddFailed'), 'error');
+    }
+}
+
 modrinthResults.addEventListener('click', async (e) => {
     const btn = e.target.closest('.modrinth-add-btn');
     if (!btn || btn.disabled) return;
@@ -53,10 +82,8 @@ modrinthResults.addEventListener('click', async (e) => {
             currentModsModalType
         );
         showToast(t('toast.modrinthAdded'), 'info');
-        if (result && result.missing_dependencies && result.missing_dependencies.length) {
-            showToast(t('modal.modrinth.missingDependencies', { names: result.missing_dependencies.join(', ') }), 'warning');
-        }
         await reloadModsList();
+        offerMissingDependencies(result);
     } catch (err) {
         showToast(err.message || t('toast.modrinthAddFailed'), 'error');
     } finally {

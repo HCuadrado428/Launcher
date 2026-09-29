@@ -10,7 +10,8 @@ const { saveConfig } = require('../config');
 const { apiRequest, uploadForm } = require('../backend');
 const { getLoaderVersionsForMc } = require('../loaders');
 const { isSupportedLoader } = require('../loaderVersions');
-const { searchModrinth, resolveBestModrinthVersion } = require('../modrinth');
+const { searchModrinth } = require('../modrinth');
+const { addModFromModrinth, addModrinthDependencies, updateMod } = require('../modUpdates');
 const { findCurseForgeInstances, findModrinthInstances } = require('../localScan');
 const { syncModpack, repairModpack, verifyModpackFiles, wipeInstanceAfterLeaving, checkLocalInstanceHealth } = require('../modpackSync');
 const { assertInstanceNotInUse } = require('../game');
@@ -140,14 +141,12 @@ function registerModpacksIpc() {
     ipcMain.handle('search-modrinth', (event, { query, mcVersion, loader, projectType } = {}) =>
         searchModrinth(query, mcVersion, loader, projectType));
 
-    ipcMain.handle('add-mod-from-modrinth', async (event, { id, projectId, mcVersion, loader, projectType } = {}) => {
-        const version = await resolveBestModrinthVersion(projectId, mcVersion, loader, projectType);
-        if (!version) throw new Error(tm('sys.noCompatibleModVersion'));
-        return apiRequest(apiPath`/api/modpacks/${id}/mods/from-modrinth`, {
-            method: 'POST',
-            body: { project_id: projectId, version_id: version.id, type: projectType }
-        });
-    });
+    ipcMain.handle('add-mod-from-modrinth', (event, options = {}) => addModFromModrinth(options));
+
+    ipcMain.handle('add-modrinth-dependencies', (event, { id, projectIds, mcVersion, loader } = {}) =>
+        addModrinthDependencies({ id, projectIds: Array.isArray(projectIds) ? projectIds.map(String) : [], mcVersion, loader }));
+
+    ipcMain.handle('modpacks-update-mod', (event, { id, modId, mcVersion, loader } = {}) => updateMod({ id, modId, mcVersion, loader }));
 
     // --- Importar instancias locales (CurseForge App / Modrinth App) ---
 
