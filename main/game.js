@@ -12,6 +12,8 @@ const { resolveJavaForVersion } = require('./javaRuntime');
 const { targetKeyFor, saveTargetSettings } = require('./targetSettings');
 const { sanitizeMemory, quickPlayForServer } = require('./gameOptions');
 const { analyzeCrashLog } = require('./crashAnalysis');
+const { ensureFreshMinecraftAuth } = require('./msAuth');
+const { Auth } = require('./msmcLoader');
 const { sendToWindow } = require('./windowState');
 const { notify } = require('./notify');
 const { tm } = require('./i18nMain');
@@ -148,6 +150,25 @@ launcher.on('close', (code) => {
 
 // --- Lanzamiento ---
 
+// Credenciales para el juego. Con Microsoft, renueva el token si ha caducado
+// (y guarda el nuevo en la cuenta activa y en la lista de cuentas). Si no se
+// puede renovar, se sigue igualmente avisando: un mundo individual funciona
+// con un token caducado, solo los servidores online lo rechazan.
+async function authorizationFor(account) {
+    if (account.type !== 'microsoft') return Authenticator.getAuth(account.username);
+
+    const { auth, refreshed, expired } = await ensureFreshMinecraftAuth(account.auth, Auth);
+    if (refreshed) {
+        const cfg = loadConfig();
+        const accounts = (cfg.accounts || []).map((a) => (a.id === account.id ? { ...a, auth } : a));
+        const patch = { accounts };
+        if (cfg.account && cfg.account.id === account.id) patch.account = { ...cfg.account, auth };
+        saveConfig(patch);
+    }
+    if (expired) sendGameStatus({ type: 'warning', message: tm('sys.game.msSessionExpired') });
+    return auth;
+}
+
 // Si el jugador pulsó "Detener" mientras se preparaba el lanzamiento, se
 // para en el siguiente punto seguro (tras sincronizar, antes de abrir Java).
 function cancelLaunchIfRequested() {
@@ -250,7 +271,7 @@ async function launchGame({ javaPath, memory, customArgs, server }) {
     const quickPlay = server ? quickPlayForServer(server, versionNumber) : null;
     const opts = {
         clientPackage: null,
-        authorization: account.type === 'microsoft' ? account.auth : Authenticator.getAuth(account.username),
+        authorization: await authorizationFor(account),
         root,
         javaPath: finalJavaPath,
         skipVersionCheck: true,

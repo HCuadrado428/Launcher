@@ -13,15 +13,7 @@ const { tm } = require('../i18nMain');
 // IPC: CONFIG, CUENTAS Y AJUSTES
 // ============================================================================
 
-// msmc se carga de forma "segura": si el usuario todavía no ha hecho
-// `npm install`, no queremos que la app entera crashee al arrancar, solo que
-// el login con Microsoft avise del problema.
-let Auth = null;
-try {
-    ({ Auth } = require('msmc'));
-} catch (err) {
-    console.warn('[WARN] msmc no está instalado. Ejecuta "npm install" para poder usar el login con Microsoft.');
-}
+const { Auth } = require('../msmcLoader');
 
 // La primera vez que se abre el launcher todavía no hay idioma guardado; en
 // vez de arrancar siempre en español, probamos a adivinarlo del idioma del
@@ -88,7 +80,9 @@ function registerAccountsIpc() {
             const authManager = new Auth('select_account');
             const xboxManager = await authManager.launch('electron');
             const token = await xboxManager.getMinecraft();
-            const mclcAuth = token.mclc();
+            // mclc(true) guarda también el refresh token de Microsoft, para
+            // poder renovar la sesión antes de cada partida (ver msAuth.js).
+            const mclcAuth = token.mclc(true);
 
             const account = {
                 id: `ms:${mclcAuth.uuid}`,
