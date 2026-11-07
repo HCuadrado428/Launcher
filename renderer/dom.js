@@ -41,6 +41,7 @@ const ramSlider = document.getElementById('ramSlider');
 const ramValue = document.getElementById('ramValue');
 const ramHint = document.getElementById('ramHint');
 const customJvmArgsInput = document.getElementById('customJvmArgsInput');
+const hideWhilePlayingCheckbox = document.getElementById('hideWhilePlayingCheckbox');
 
 const playBtn = document.getElementById('playBtn');
 const stopBtn = document.getElementById('stopBtn');
@@ -67,6 +68,7 @@ const progressLabel = document.getElementById('progressLabel');
 const toastWrap = document.getElementById('toastWrap');
 
 const activeModpackLabel = document.getElementById('activeModpackLabel');
+const vanillaVersionSelect = document.getElementById('vanillaVersionSelect');
 const playtimeLabel = document.getElementById('playtimeLabel');
 const useVanillaBtn = document.getElementById('useVanillaBtn');
 
@@ -98,6 +100,7 @@ const openImportModalBtn = document.getElementById('openImportModalBtn');
 const importModal = document.getElementById('importModal');
 const closeImportModalBtn = document.getElementById('closeImportModalBtn');
 const scanLocalModpacksBtn = document.getElementById('scanLocalModpacksBtn');
+const importMrpackBtn = document.getElementById('importMrpackBtn');
 const importResults = document.getElementById('importResults');
 const curseforgeApiKeyInput = document.getElementById('curseforgeApiKeyInput');
 const saveCurseforgeApiKeyBtn = document.getElementById('saveCurseforgeApiKeyBtn');
@@ -128,6 +131,7 @@ const deleteModpackBtn = document.getElementById('deleteModpackBtn');
 const repairModpackBtn = document.getElementById('repairModpackBtn');
 const verifyModpackBtn = document.getElementById('verifyModpackBtn');
 const exportModpackBtn = document.getElementById('exportModpackBtn');
+const exportMrpackBtn = document.getElementById('exportMrpackBtn');
 const setCoverBtn = document.getElementById('setCoverBtn');
 const openInstanceFolderBtn = document.getElementById('openInstanceFolderBtn');
 const shareConfigBtn = document.getElementById('shareConfigBtn');

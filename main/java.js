@@ -102,6 +102,20 @@ function findNewestJava() {
     return newestJavaCache;
 }
 
+// La ruta de Java llega desde el renderer (campo de texto editable) y se
+// ejecuta tal cual. Se exige que sea un ejecutable llamado java/javaw, y sin
+// caracteres que una shell interpretaría, para que el campo no pueda usarse
+// para lanzar cualquier otro programa.
+const JAVA_EXECUTABLE_NAMES = new Set(['java', 'javaw', 'java.exe', 'javaw.exe']);
+
+function isPlausibleJavaPath(javaPath) {
+    if (typeof javaPath !== 'string') return false;
+    const trimmed = javaPath.trim();
+    if (!trimmed || /["`$\r\n]/.test(trimmed)) return false;
+    const executableName = trimmed.split(/[\\/]/).pop().toLowerCase();
+    return JAVA_EXECUTABLE_NAMES.has(executableName);
+}
+
 // ============================================================================
 // COMPATIBILIDAD DE JAVA (aviso antes de lanzar, no bloqueante)
 // ============================================================================
@@ -121,6 +135,22 @@ function requiredJavaMajorFor(mcVersion) {
         if (compareVersionArrays(v, req.maxVersion) <= 0) return req.javaMajor;
     }
     return 21;
+}
+
+// Runtime de Java oficial de Mojang ("component") que corresponde a cada
+// versión mínima de Java. Solo se usa como alternativa cuando no se puede
+// leer el version.json de Mojang (sin conexión): lo normal es usar el
+// javaVersion.component que trae ese json (ver getJavaRequirementForVersion).
+const JAVA_COMPONENT_BY_MAJOR = {
+    8: 'jre-legacy',
+    16: 'java-runtime-alpha',
+    17: 'java-runtime-gamma',
+    21: 'java-runtime-delta'
+};
+
+function fallbackJavaRequirementFor(mcVersion) {
+    const majorVersion = requiredJavaMajorFor(mcVersion);
+    return { component: JAVA_COMPONENT_BY_MAJOR[majorVersion], majorVersion };
 }
 
 // Devuelve el "major" de la instalación de Java indicada (8, 17, 21...) o
@@ -154,6 +184,8 @@ function getInstalledJavaMajor(javaPath) {
 module.exports = {
     findJavaCandidates,
     findNewestJava,
+    isPlausibleJavaPath,
     requiredJavaMajorFor,
+    fallbackJavaRequirementFor,
     getInstalledJavaMajor
 };

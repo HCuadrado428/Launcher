@@ -1,7 +1,10 @@
 const fs = require('fs');
 const {
     installForgeTask,
+    installNeoForgedTask,
     installFabric,
+    installQuiltVersion,
+    getQuiltLoaderVersionsByMinecraft,
     getLoaderArtifactListFor,
     installDependenciesTask,
     installVersionTask,
@@ -9,10 +12,11 @@ const {
 } = require('@xmcl/installer');
 const { Version } = require('@xmcl/core');
 const { parseVersionFromDirName, compareVersionArrays } = require('./utils');
-const { loadConfig } = require('./config');
-const { findNewestJava } = require('./java');
 const { instanceDir } = require('./paths');
-const { getMainWindow } = require('./windowState');
+const { sendToWindow } = require('./windowState');
+const { fetchWithTimeout } = require('./httpUtils');
+const { tm } = require('./i18nMain');
+const { neoForgeVersionsForMc, quiltVersionsFromMeta } = require('./loaderVersions');
 
 // ============================================================================
 // INSTALACIÓN DE FORGE / FABRIC (@xmcl/installer)
@@ -34,14 +38,34 @@ const FORGE_MAVEN_HTTPS = 'https://files.minecraftforge.net/maven';
 // getForgeVersionList() de @xmcl/installer, que scrapea la página HTML de
 // Forge en http:// y rompe con "Corrupted Forge Web Page" cuando el servidor
 // redirige a https (ver nota de FORGE_MAVEN_HTTPS arriba).
-async function getForgeVersionsForMc(mcVersion) {
+//
+// maven-metadata.xml lista TODAS las builds de Forge de todas las versiones
+// (más de 1 MB) y antes se descargaba entero cada vez que se cambiaba la
+// versión en el selector de "Crear modpack". Ahora se guarda en memoria un
+// rato, junto con promotions_slim.json.
+const FORGE_METADATA_TTL_MS = 30 * 60 * 1000;
+const FORGE_FETCH_TIMEOUT_MS = 30000;
+let forgeMetadataCache = null;
+
+async function getForgeMetadata() {
+    if (forgeMetadataCache && Date.now() - forgeMetadataCache.fetchedAt < FORGE_METADATA_TTL_MS) {
+        return forgeMetadataCache;
+    }
     const [metaRes, promoRes] = await Promise.all([
-        fetch('https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml'),
-        fetch('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json')
+        fetchWithTimeout('https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml', {}, FORGE_FETCH_TIMEOUT_MS),
+        fetchWithTimeout('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json', {}, FORGE_FETCH_TIMEOUT_MS)
+            .catch(() => null)
     ]);
-    if (!metaRes.ok) throw new Error(`No se pudo consultar las versiones de Forge (estado ${metaRes.status}).`);
+    if (!metaRes.ok) throw new Error(tm('sys.forgeVersionsFailed', { status: metaRes.status }));
 
     const xml = await metaRes.text();
+    const promos = promoRes && promoRes.ok ? ((await promoRes.json()).promos || {}) : {};
+    forgeMetadataCache = { xml, promos, fetchedAt: Date.now() };
+    return forgeMetadataCache;
+}
+
+async function getForgeVersionsForMc(mcVersion) {
+    const { xml, promos } = await getForgeMetadata();
     const prefix = `${mcVersion}-`;
     const versions = [...xml.matchAll(/<version>([^<]+)<\/version>/g)]
         .map((m) => m[1])
@@ -50,26 +74,14 @@ async function getForgeVersionsForMc(mcVersion) {
     const unique = [...new Set(versions)];
     unique.sort((a, b) => compareVersionArrays(parseVersionFromDirName(b), parseVersionFromDirName(a)));
 
-    let recommended = null;
-    let latest = null;
-    if (promoRes.ok) {
-        const promos = (await promoRes.json()).promos || {};
-        recommended = promos[`${mcVersion}-recommended`] || null;
-        latest = promos[`${mcVersion}-latest`] || null;
-    }
+    const recommended = promos[`${mcVersion}-recommended`] || null;
+    const latest = promos[`${mcVersion}-latest`] || null;
 
     return unique.map((version) => ({
         version,
         recommended: version === recommended,
         latest: version === latest
     }));
-}
-
-async function resolveForgeVersion(mcVersion) {
-    const list = await getForgeVersionsForMc(mcVersion);
-    const pick = list.find((v) => v.recommended) || list.find((v) => v.latest) || list[0];
-    if (!pick) throw new Error(`No hay ninguna versión de Forge disponible para Minecraft ${mcVersion}.`);
-    return pick.version;
 }
 
 // Todas las builds de Fabric Loader para una versión de Minecraft, marcando
@@ -84,12 +96,50 @@ async function getFabricVersionsForMc(mcVersion) {
     }));
 }
 
-async function resolveFabricLoaderVersion(mcVersion) {
-    const list = await getFabricVersionsForMc(mcVersion);
-    const pick = list.find((v) => v.recommended) || list[0];
-    if (!pick) throw new Error(`No hay ninguna versión de Fabric Loader disponible para Minecraft ${mcVersion}.`);
+// NeoForge: su maven-metadata.xml lista todas las builds (de todas las
+// versiones de Minecraft); se cachea igual que el de Forge.
+const NEOFORGE_MAVEN = 'https://maven.neoforged.net/releases';
+let neoForgeMetadataCache = null;
+
+async function getNeoForgeVersionsForMc(mcVersion) {
+    if (!neoForgeMetadataCache || Date.now() - neoForgeMetadataCache.fetchedAt >= FORGE_METADATA_TTL_MS) {
+        const res = await fetchWithTimeout(`${NEOFORGE_MAVEN}/net/neoforged/neoforge/maven-metadata.xml`, {}, FORGE_FETCH_TIMEOUT_MS);
+        if (!res.ok) throw new Error(tm('sys.loaderVersionsFailed', { loader: 'NeoForge', status: res.status }));
+        const xml = await res.text();
+        neoForgeMetadataCache = {
+            versions: [...xml.matchAll(/<version>([^<]+)<\/version>/g)].map((m) => m[1]),
+            fetchedAt: Date.now()
+        };
+    }
+    return neoForgeVersionsForMc(neoForgeMetadataCache.versions, mcVersion);
+}
+
+async function getQuiltVersionsForMc(mcVersion) {
+    return quiltVersionsFromMeta(await getQuiltLoaderVersionsByMinecraft({ minecraftVersion: mcVersion }));
+}
+
+// Lista de versiones para el selector de "Crear modpack", sea cual sea el
+// loader.
+function getLoaderVersionsForMc(loader, mcVersion) {
+    switch (loader) {
+        case 'forge': return getForgeVersionsForMc(mcVersion);
+        case 'neoforge': return getNeoForgeVersionsForMc(mcVersion);
+        case 'fabric': return getFabricVersionsForMc(mcVersion);
+        case 'quilt': return getQuiltVersionsForMc(mcVersion);
+        default: return Promise.resolve([]);
+    }
+}
+
+// La versión recomendada de un loader (para modpacks creados antes de poder
+// elegir versión, o importados sin ella).
+async function resolveRecommendedLoaderVersion(loader, mcVersion) {
+    const list = await getLoaderVersionsForMc(loader, mcVersion);
+    const pick = list.find((v) => v.recommended) || list.find((v) => v.latest) || list[0];
+    if (!pick) throw new Error(tm('sys.noLoaderVersion', { loader: LOADER_NAMES[loader] || loader, version: mcVersion }));
     return pick.version;
 }
+
+const LOADER_NAMES = { forge: 'Forge', neoforge: 'NeoForge', fabric: 'Fabric', quilt: 'Quilt' };
 
 // Ejecuta un Task de @xmcl/installer (la variante "Task" de sus funciones de
 // instalación, que sí reporta progreso real en vez de solo "ha empezado/ha
@@ -98,10 +148,9 @@ async function resolveFabricLoaderVersion(mcVersion) {
 function runInstallTask(task, modpackId, labelPrefix) {
     return task.startAndWait({
         onUpdate: () => {
-            const mainWindow = getMainWindow();
-            if (!mainWindow || !task.total) return;
+            if (!task.total) return;
             const percent = Math.min(100, Math.round((task.progress / task.total) * 100));
-            mainWindow.webContents.send('modpack-sync-progress', {
+            sendToWindow('modpack-sync-progress', {
                 label: `${labelPrefix}... ${percent}%`,
                 percent,
                 modpackId
@@ -112,13 +161,18 @@ function runInstallTask(task, modpackId, labelPrefix) {
 
 // Instala Forge o Fabric dentro de la carpeta de la instancia del modpack y
 // devuelve el "version id" instalado, que es lo que hay que pasar como
-// version.custom a minecraft-launcher-core para lanzar el juego con ese
+// como versión a lanzar (ver gameLauncher.js) para jugar con ese
 // loader. No hace nada (devuelve null) si el modpack es vanilla.
 //
 // requestedLoaderVersion es la build concreta que eligió el creador del
 // modpack (p.ej. "47.4.10" o "0.19.3"). Si viene vacía (modpacks antiguos,
 // creados antes de poder elegir versión), se resuelve automáticamente la
 // recomendada.
+//
+// javaPath es el Java con el que se ejecutan los procesadores del instalador
+// de Forge (el mismo que usará el juego, ver javaRuntime.js); null deja que
+// @xmcl/installer use el "java" del PATH.
+//
 // installVersionTask por sí solo instala también los assets/librerías
 // vanilla (miles de archivos pequeños: sonidos, idiomas, texturas...), no
 // solo el .jar y el version.json — sin esto se quedaba con la concurrencia
@@ -129,38 +183,39 @@ function runInstallTask(task, modpackId, labelPrefix) {
 // sincronización de un modpack con Forge/Fabric tarde muchísimo.
 const INSTALL_CONCURRENCY = { assetsDownloadConcurrency: 10, librariesDownloadConcurrency: 10 };
 
-async function installLoaderForInstance(modpackId, mcVersion, loader, requestedLoaderVersion) {
-    if (loader !== 'forge' && loader !== 'fabric') return null;
+async function installLoaderForInstance(modpackId, mcVersion, loader, requestedLoaderVersion, javaPath) {
+    if (!LOADER_NAMES[loader]) return null;
 
     const root = instanceDir(modpackId);
     fs.mkdirSync(root, { recursive: true });
-
-    const cfg = loadConfig();
-    const javaPath = (cfg.javaPath && cfg.javaPath.trim()) || findNewestJava();
 
     // El instalador de Forge necesita que el .jar vanilla de esa versión ya
     // esté en disco (lo usa para post-procesarlo con "jarsplitter"), así que
     // instalamos primero la versión vanilla base antes de instalar el loader.
     const versionList = await getVersionList();
     const versionMeta = versionList.versions.find((v) => v.id === mcVersion);
-    if (!versionMeta) throw new Error(`Minecraft ${mcVersion} no aparece en la lista de versiones de Mojang.`);
-    await runInstallTask(installVersionTask(versionMeta, root, INSTALL_CONCURRENCY), modpackId, 'Descargando Minecraft base');
+    if (!versionMeta) throw new Error(tm('sys.unknownMcVersion', { version: mcVersion }));
+    await runInstallTask(installVersionTask(versionMeta, root, INSTALL_CONCURRENCY), modpackId, tm('sys.progress.baseMinecraft'));
 
+    const loaderVersion = requestedLoaderVersion || await resolveRecommendedLoaderVersion(loader, mcVersion);
+    const javaOption = javaPath ? { java: javaPath } : {};
     let versionId;
     if (loader === 'forge') {
-        const forgeVersion = requestedLoaderVersion || await resolveForgeVersion(mcVersion);
         versionId = await runInstallTask(
-            installForgeTask(
-                { mcversion: mcVersion, version: forgeVersion },
-                root,
-                { mavenHost: FORGE_MAVEN_HTTPS, ...(javaPath ? { java: javaPath } : {}) }
-            ),
+            installForgeTask({ mcversion: mcVersion, version: loaderVersion }, root, { mavenHost: FORGE_MAVEN_HTTPS, ...javaOption }),
             modpackId,
-            'Instalando Forge'
+            tm('sys.progress.installingLoader', { loader: 'Forge' })
         );
+    } else if (loader === 'neoforge') {
+        versionId = await runInstallTask(
+            installNeoForgedTask('neoforge', loaderVersion, root, javaOption),
+            modpackId,
+            tm('sys.progress.installingLoader', { loader: 'NeoForge' })
+        );
+    } else if (loader === 'quilt') {
+        versionId = await installQuiltVersion({ minecraftVersion: mcVersion, version: loaderVersion, minecraft: root });
     } else {
-        const fabricVersion = requestedLoaderVersion || await resolveFabricLoaderVersion(mcVersion);
-        versionId = await installFabric({ minecraftVersion: mcVersion, version: fabricVersion, minecraft: root });
+        versionId = await installFabric({ minecraftVersion: mcVersion, version: loaderVersion, minecraft: root });
     }
 
     // Descargar las ~2000 librerías/assets en paralelo es propenso a fallos
@@ -185,7 +240,7 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
             await runInstallTask(
                 installDependenciesTask(resolved, INSTALL_CONCURRENCY),
                 modpackId,
-                `Descargando librerías de ${loader}`
+                tm('sys.progress.loaderLibraries', { loader })
             );
             lastErr = null;
             break;
@@ -201,7 +256,6 @@ async function installLoaderForInstance(modpackId, mcVersion, loader, requestedL
 }
 
 module.exports = {
-    getForgeVersionsForMc,
-    getFabricVersionsForMc,
+    getLoaderVersionsForMc,
     installLoaderForInstance
 };

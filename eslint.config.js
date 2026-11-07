@@ -12,7 +12,9 @@ const nodeGlobals = {
     FormData: 'readonly',
     Blob: 'readonly',
     AbortController: 'readonly',
+    URL: 'readonly',
     URLSearchParams: 'readonly',
+    Response: 'readonly',
     setTimeout: 'readonly',
     clearTimeout: 'readonly',
     setInterval: 'readonly',
@@ -68,6 +70,14 @@ module.exports = [
         rules: {
             'no-undef': 'off',
             'no-unused-vars': 'off'
+        }
+    },
+    {
+        // El smoke test E2E corre en Node, pero las funciones que pasa a
+        // win.evaluate() se ejecutan dentro de la página.
+        files: ['e2e/**/*.js'],
+        languageOptions: {
+            globals: { ...nodeGlobals, ...browserGlobals }
         }
     },
     {

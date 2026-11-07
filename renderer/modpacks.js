@@ -4,21 +4,42 @@ async function updateActiveModpackLabel(activeModpack) {
     if (activeModpack) {
         let loaderSuffix = '';
         if (activeModpack.loader && activeModpack.loader !== 'vanilla') {
-            const loaderName = activeModpack.loader[0].toUpperCase() + activeModpack.loader.slice(1);
+            const loaderName = LOADER_LABELS[activeModpack.loader] || activeModpack.loader;
             loaderSuffix = activeModpack.loader_version
                 ? ` · ${loaderName} ${activeModpack.loader_version}`
                 : ` · ${loaderName}`;
         }
         activeModpackLabel.innerText = t('label.modpackActive', { name: activeModpack.name, version: activeModpack.mc_version }) + loaderSuffix;
+        vanillaVersionSelect.style.display = 'none';
     } else {
         activeModpackLabel.innerText = t('label.vanillaChecking');
-        window.electronAPI.getLatestVersion().then((version) => {
-            if (!document.getElementById('mainScreen').dataset.modpackActive) {
-                activeModpackLabel.innerText = t('label.vanillaVersion', { version });
-            }
-        });
+        const [latest, cfg] = await Promise.all([window.electronAPI.getLatestVersion(), window.electronAPI.getConfig()]);
+        if (document.getElementById('mainScreen').dataset.modpackActive) return;
+        const chosen = (cfg && cfg.vanillaVersion) || 'latest';
+        activeModpackLabel.innerText = chosen === 'latest'
+            ? t('label.vanillaVersion', { version: latest })
+            : t('label.vanillaFixed', { version: chosen });
+        await fillVanillaVersionSelect(latest, chosen);
     }
 }
+
+// Selector de versión para vanilla: "Última release" (por defecto) o
+// cualquier release concreta de la lista de Mojang.
+async function fillVanillaVersionSelect(latest, chosen) {
+    const versions = await ensureReleaseVersionsLoaded();
+    const options = [`<option value="latest">${escapeHtml(t('label.vanillaLatestOption', { version: latest }))}</option>`]
+        .concat(versions.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`));
+    // Si la versión guardada ya no aparece (sin conexión), se mantiene igual.
+    if (chosen !== 'latest' && !versions.includes(chosen)) options.push(`<option value="${escapeHtml(chosen)}">${escapeHtml(chosen)}</option>`);
+    vanillaVersionSelect.innerHTML = options.join('');
+    vanillaVersionSelect.value = chosen;
+    vanillaVersionSelect.style.display = '';
+}
+
+vanillaVersionSelect.addEventListener('change', async () => {
+    await window.electronAPI.setVanillaVersion(vanillaVersionSelect.value);
+    updateActiveModpackLabel(null);
+});
 
 // Carga inicial del panel de modpacks: se llama una vez justo después de
 // iniciar sesión (o al arrancar si ya había una sesión guardada), no cada
@@ -76,19 +97,32 @@ window.electronAPI.onModpackDownloadEstimate((data) => {
     showToast(t('toast.downloadEstimate', { size: formatBytes(data.totalBytes), count: data.fileCount }), 'info');
 });
 
+// Novedades del modpack tras sincronizar (mods añadidos, actualizados o
+// quitados, cambio de versión) y aviso si se hizo copia de los mundos.
+window.electronAPI.onModpackChanges(({ name, changes, worldsBackedUp }) => {
+    const parts = [];
+    if (changes.versionChanged) parts.push(t('changes.version', { version: changes.mcVersion, loader: LOADER_LABELS[changes.loader] || changes.loader }));
+    if (changes.added.length) parts.push(t('changes.added', { count: changes.added.length }));
+    if (changes.updated.length) parts.push(t('changes.updated', { count: changes.updated.length }));
+    if (changes.removed.length) parts.push(t('changes.removed', { count: changes.removed.length }));
+    let message = t('changes.title', { name, details: parts.join(', ') });
+    if (worldsBackedUp) message += ' ' + t('changes.worldsBackedUp');
+    showToast(message, 'info');
+});
+
 let releaseVersionsCache = null;
 
 async function ensureReleaseVersionsLoaded() {
     if (releaseVersionsCache) return releaseVersionsCache;
     const versions = await window.electronAPI.getReleaseVersions();
     releaseVersionsCache = versions;
-    newModpackVersion.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+    newModpackVersion.innerHTML = versions.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
     return versions;
 }
 
-// Al elegir Forge/Fabric se rellena un tercer <select> con todas las builds
-// disponibles para la versión de Minecraft elegida, marcando y preseleccionando
-// la recomendada (o la estable más reciente en el caso de Fabric).
+// Al elegir un loader (Forge, NeoForge, Fabric o Quilt) se rellena un tercer
+// <select> con todas las builds disponibles para la versión de Minecraft
+// elegida, marcando y preseleccionando la recomendada.
 async function updateLoaderVersionOptions() {
     const loader = newModpackLoader.value;
     if (loader === 'vanilla') {
@@ -104,9 +138,7 @@ async function updateLoaderVersionOptions() {
     newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.loading')}</option>`;
 
     try {
-        const list = loader === 'forge'
-            ? await window.electronAPI.getForgeVersions(mcVersion)
-            : await window.electronAPI.getFabricVersions(mcVersion);
+        const list = await window.electronAPI.getLoaderVersions(loader, mcVersion);
 
         if (!list.length) {
             newModpackLoaderVersion.innerHTML = `<option value="">${t('modpacks.create.loaderVersion.empty')}</option>`;
@@ -115,7 +147,7 @@ async function updateLoaderVersionOptions() {
 
         newModpackLoaderVersion.innerHTML = list.map(v => {
             const tag = v.recommended ? ` (${t('modpacks.create.loaderVersion.recommended')})` : '';
-            return `<option value="${v.version}">${v.version}${tag}</option>`;
+            return `<option value="${escapeHtml(v.version)}">${escapeHtml(v.version)}${tag}</option>`;
         }).join('');
 
         const recommended = list.find(v => v.recommended);
@@ -131,19 +163,21 @@ newModpackVersion.addEventListener('change', updateLoaderVersionOptions);
 
 function modpackItemHtml(pack, isOwner) {
     const icon = LOADER_ICONS[pack.loader] || '📦';
-    const iconHtml = pack.cover_image
-        ? `<img src="${pack.cover_image}" alt="">`
+    const coverUri = safeDataImageUri(pack.cover_image);
+    const iconHtml = coverUri
+        ? `<img src="${coverUri}" alt="">`
         : icon;
+    const id = escapeHtml(pack.id);
     return `
-        <div class="modpack-card" data-id="${pack.id}">
-            <div class="modpack-card-icon${pack.cover_image ? ' has-cover' : ''}">${iconHtml}</div>
+        <div class="modpack-card" data-id="${id}">
+            <div class="modpack-card-icon${coverUri ? ' has-cover' : ''}">${iconHtml}</div>
             <div class="modpack-card-info">
                 <div class="modpack-card-name">${escapeHtml(pack.name)} ${loaderBadgeHtml(pack.loader, pack.loader_version)}</div>
                 <div class="modpack-card-meta">MC ${escapeHtml(pack.mc_version)}${isOwner ? t('modpacks.owner.suffix') : ''}</div>
             </div>
             <div class="modpack-card-actions">
-                <button class="secondary manage-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-is-owner="${isOwner}">${isOwner ? t('modpacks.manage') : t('modpacks.manageShared')}</button>
-                <button class="select-btn" data-id="${pack.id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
+                <button class="secondary manage-btn" data-id="${id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-is-owner="${isOwner}">${isOwner ? t('modpacks.manage') : t('modpacks.manageShared')}</button>
+                <button class="select-btn" data-id="${id}" data-name="${escapeHtml(pack.name)}" data-version="${escapeHtml(pack.mc_version)}" data-loader="${escapeHtml(pack.loader || 'vanilla')}" data-loader-version="${escapeHtml(pack.loader_version || '')}">${t('modpacks.play')}</button>
             </div>
         </div>
     `;
@@ -169,14 +203,24 @@ function renderModpackLists() {
     sharedModpacksList.innerHTML = shared.length
         ? shared.map(p => modpackItemHtml(p, false)).join('')
         : `<div class="empty-hint">${t(emptySharedKey)}</div>`;
-
-    document.querySelectorAll('.manage-btn').forEach(btn => {
-        btn.addEventListener('click', () => openModsModal(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.isOwner === 'true'));
-    });
-    document.querySelectorAll('.select-btn').forEach(btn => {
-        btn.addEventListener('click', () => selectAndSyncModpack(btn.dataset.id, btn.dataset.name, btn.dataset.version, btn.dataset.loader, btn.dataset.loaderVersion, btn));
-    });
 }
+
+// Un solo listener por lista en vez de uno por botón en cada repintado.
+function handleModpackListClick(e) {
+    const manageBtn = e.target.closest('.manage-btn');
+    if (manageBtn) {
+        const d = manageBtn.dataset;
+        openModsModal(d.id, d.name, d.version, d.loader, d.isOwner === 'true');
+        return;
+    }
+    const selectBtn = e.target.closest('.select-btn');
+    if (selectBtn && !selectBtn.disabled) {
+        const d = selectBtn.dataset;
+        selectAndSyncModpack(d.id, d.name, d.version, d.loader, d.loaderVersion, selectBtn);
+    }
+}
+ownedModpacksList.addEventListener('click', handleModpackListClick);
+sharedModpacksList.addEventListener('click', handleModpackListClick);
 
 // Repintar toda la lista de tarjetas en cada pulsación no hace falta:
 // esperar un poco a que el usuario pare de teclear evita reconstruir el HTML
@@ -287,10 +331,13 @@ redeemInviteBtn.addEventListener('click', async () => {
     }
 });
 
-// Cuando el sistema operativo abre un link milauncher://invite/TOKEN
+// Cuando el sistema operativo abre un link milauncher://invite/TOKEN. Se
+// pregunta antes de canjearlo: el link puede venir de cualquier web o chat,
+// y unirse a un modpack significa que sus mods se ejecutarán en este equipo.
 window.electronAPI.onInviteReceived((data) => {
     showScreen('mainScreen');
     modpacksPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!confirm(t('invite.deepLinkConfirm'))) return;
     loadModpacks();
     redeemInvite(data.token);
 });

@@ -16,12 +16,24 @@ function formatBytes(bytes) {
     return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function showToast(message, type) {
+// action (opcional): { label, onClick } añade un botón al aviso, que dura
+// más para dar tiempo a pulsarlo.
+function showToast(message, type, action) {
     const el = document.createElement('div');
     el.className = 'toast ' + (type || 'info');
     el.innerText = message;
+    if (action) {
+        const btn = document.createElement('button');
+        btn.className = 'toast-action';
+        btn.innerText = action.label;
+        btn.addEventListener('click', () => {
+            action.onClick();
+            el.remove();
+        });
+        el.appendChild(btn);
+    }
     toastWrap.appendChild(el);
-    setTimeout(() => el.remove(), 5000);
+    setTimeout(() => el.remove(), action ? 12000 : 5000);
 }
 
 function showScreen(id) {
@@ -57,8 +69,8 @@ function skeletonCardsHtml(count) {
     return Array.from({ length: count }, () => '<div class="modpack-card-skeleton"></div>').join('');
 }
 
-const LOADER_LABELS = { forge: 'Forge', fabric: 'Fabric' };
-const LOADER_ICONS = { forge: '🛠️', fabric: '🧵' };
+const LOADER_LABELS = { vanilla: 'Vanilla', forge: 'Forge', neoforge: 'NeoForge', fabric: 'Fabric', quilt: 'Quilt' };
+const LOADER_ICONS = { forge: '🛠️', neoforge: '🦊', fabric: '🧵', quilt: '🧶' };
 
 function loaderBadgeHtml(loader, loaderVersion) {
     if (!loader || loader === 'vanilla') return '';
@@ -72,6 +84,21 @@ const SOURCE_LABELS = { curseforge: 'CurseForge', modrinth: 'Modrinth' };
 
 function extractInviteToken(raw) {
     const value = raw.trim();
-    const match = /^milauncher:\/\/invite\/(.+)$/.exec(value);
-    return match ? match[1] : value; // si no es un link completo, asumimos que ya es el token
+    const match = /^milauncher:\/\/invite\/([^/?#]+)\/?$/.exec(value);
+    if (!match) return value; // si no es un link completo, asumimos que ya es el token
+    try {
+        return decodeURIComponent(match[1]);
+    } catch (err) {
+        return match[1];
+    }
+}
+
+// La portada de un modpack la sube su dueño y llega del servidor tal cual.
+// Solo se acepta si es de verdad una imagen en base64 (lo que genera
+// "Elegir portada"); cualquier otra cosa se descarta en vez de meterla en un
+// atributo src.
+const SAFE_DATA_IMAGE_RE = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+function safeDataImageUri(value) {
+    return typeof value === 'string' && SAFE_DATA_IMAGE_RE.test(value) ? value : null;
 }

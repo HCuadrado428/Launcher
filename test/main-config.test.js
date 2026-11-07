@@ -83,6 +83,32 @@ test('saveConfig combina con lo que ya había en vez de reemplazarlo entero', ()
     assert.equal(cfg.b, 2);
 });
 
+test('un config.json ilegible se aparta a config.corrupt-*.json en vez de perderse al guardar', () => {
+    const configDir = path.join(userDataDir, 'userData');
+    const configPath = path.join(configDir, 'config.json');
+    // El test anterior ya deja una copia apartada (lee un config cifrado sin
+    // safeStorage disponible); aquí solo interesa la de este caso.
+    for (const f of fs.readdirSync(configDir)) {
+        if (f.startsWith('config.corrupt-')) fs.unlinkSync(path.join(configDir, f));
+    }
+    fs.writeFileSync(configPath, '{ esto no es JSON');
+
+    const { loadConfig, saveConfig } = loadConfigModuleWithMock(false);
+    assert.deepEqual(loadConfig(), {});
+
+    const backups = fs.readdirSync(configDir).filter((f) => f.startsWith('config.corrupt-'));
+    assert.equal(backups.length, 1);
+    assert.equal(fs.readFileSync(path.join(configDir, backups[0]), 'utf-8'), '{ esto no es JSON');
+
+    saveConfig({ nueva: true });
+    assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf-8')).nueva, true);
+    assert.deepEqual(
+        fs.readdirSync(configDir).filter((f) => f.endsWith('.tmp')),
+        [],
+        'la escritura atómica no debe dejar temporales'
+    );
+});
+
 test.after(() => {
     fs.rmSync(userDataDir, { recursive: true, force: true });
 });

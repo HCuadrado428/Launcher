@@ -15,22 +15,17 @@ closeImportModalBtn.addEventListener('click', () => {
 function importItemHtml(instance) {
     const icon = SOURCE_ICONS[instance.source] || '📦';
     const sourceLabel = SOURCE_LABELS[instance.source] || instance.source;
-    let meta;
-    let actionHtml;
-    if (instance.source === 'curseforge') {
-        meta = `${sourceLabel} · ${t('import.curseforge.needsKey')}`;
-        actionHtml = '';
-    } else {
-        meta = instance.mcVersion
-            ? `${sourceLabel} · MC ${escapeHtml(instance.mcVersion)}${instance.loader ? ' · ' + escapeHtml(instance.loader) : ''} · ${instance.resolvedCount}/${instance.modCount} ${t('import.mods.identified')}`
-            : `${sourceLabel} · ${t('import.mods.unresolved')}`;
-        actionHtml = instance.importable
-            ? `<button class="import-btn" data-path="${escapeHtml(instance.path)}">${t('import.button')}</button>`
-            : '';
-    }
-    const isUnavailable = instance.source === 'curseforge' || !instance.importable;
+    const loaderText = instance.loader && instance.loader !== 'vanilla'
+        ? ' · ' + escapeHtml(LOADER_LABELS[instance.loader] || instance.loader)
+        : '';
+    const meta = instance.mcVersion
+        ? `${sourceLabel} · MC ${escapeHtml(instance.mcVersion)}${loaderText} · ${instance.resolvedCount}/${instance.modCount} ${t('import.mods.identified')}`
+        : `${sourceLabel} · ${t('import.mods.unresolved')}`;
+    const actionHtml = instance.importable
+        ? `<button class="import-btn" data-path="${escapeHtml(instance.path)}">${t('import.button')}</button>`
+        : '';
     return `
-        <div class="import-item ${isUnavailable ? 'unavailable' : ''}">
+        <div class="import-item ${instance.importable ? '' : 'unavailable'}">
             <div class="import-item-icon">${icon}</div>
             <div class="import-item-info">
                 <div class="import-item-name">${escapeHtml(instance.name)}</div>
@@ -50,10 +45,6 @@ scanLocalModpacksBtn.addEventListener('click', async () => {
         importResults.innerHTML = instances.length
             ? instances.map(importItemHtml).join('')
             : `<div class="empty-hint">${t('import.empty')}</div>`;
-
-        importResults.querySelectorAll('.import-btn').forEach(btn => {
-            btn.addEventListener('click', () => importLocalModpack(btn.dataset.path, btn));
-        });
     } catch (err) {
         importResults.innerHTML = '';
         showToast(err.message || t('import.scanFailed'), 'error');
@@ -61,6 +52,11 @@ scanLocalModpacksBtn.addEventListener('click', async () => {
         scanLocalModpacksBtn.disabled = false;
         scanLocalModpacksBtn.innerText = t('import.scan');
     }
+});
+
+importResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('.import-btn');
+    if (btn && !btn.disabled) importLocalModpack(btn.dataset.path, btn);
 });
 
 async function importLocalModpack(instancePath, buttonEl) {
@@ -79,6 +75,11 @@ async function importLocalModpack(instancePath, buttonEl) {
             message += ' ' + t('import.partial', { count: result.skipped + result.unresolvedCount });
         }
         showToast(message, 'info');
+        // Los que no están en Modrinth hay que añadirlos a mano: se dice cuáles.
+        if (result.unresolvedNames && result.unresolvedNames.length) {
+            const names = result.unresolvedNames.slice(0, 10).join(', ') + (result.unresolvedNames.length > 10 ? '…' : '');
+            showToast(t('import.unresolvedList', { names }), 'warning');
+        }
         importModal.classList.remove('active');
         loadModpacks();
     } catch (err) {
@@ -89,6 +90,31 @@ async function importLocalModpack(instancePath, buttonEl) {
         removeProgressListener();
     }
 }
+
+importMrpackBtn.addEventListener('click', async () => {
+    const originalText = importMrpackBtn.innerText;
+    importMrpackBtn.disabled = true;
+    const removeProgressListener = window.electronAPI.onModpackSyncProgress((data) => {
+        importMrpackBtn.innerText = `${data.percent}%`;
+    });
+    try {
+        const result = await window.electronAPI.importMrpack();
+        if (!result.cancelled) {
+            let message = t('import.mrpack.success', { name: result.modpack.name, count: result.fromModrinth + result.uploaded });
+            if (result.skipped > 0) message += ' ' + t('import.partial', { count: result.skipped });
+            if (result.configShared) message += ' ' + t('import.mrpack.configShared');
+            showToast(message, 'info');
+            importModal.classList.remove('active');
+            loadModpacks();
+        }
+    } catch (err) {
+        showToast(err.message || t('import.failed'), 'error');
+    } finally {
+        removeProgressListener();
+        importMrpackBtn.disabled = false;
+        importMrpackBtn.innerText = originalText;
+    }
+});
 
 saveCurseforgeApiKeyBtn.addEventListener('click', async () => {
     await window.electronAPI.setCurseForgeApiKey(curseforgeApiKeyInput.value.trim());

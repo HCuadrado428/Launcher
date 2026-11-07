@@ -1,12 +1,12 @@
 // --- Java ---
 
-async function runAutoDetect(silent) {
-    if (!silent) javaHint.innerText = t('toast.javaSearching');
+async function runAutoDetect() {
+    javaHint.innerText = t('toast.javaSearching');
     const detected = await window.electronAPI.autoDetectJava();
     if (detected) {
         javaPathInput.value = detected;
         javaHint.innerText = t('toast.javaDetected', { path: detected });
-    } else if (!silent) {
+    } else {
         javaHint.innerText = t('toast.javaNotFound');
     }
     return detected;
@@ -14,17 +14,23 @@ async function runAutoDetect(silent) {
 
 // La RAM y la ruta de Java se guardan por modpack (o para "vanilla" si no
 // hay ninguno activo), así que hay que refrescar estos campos cada vez que
-// cambia la instalación activa: un modpack pesado puede necesitar más RAM
-// que vanilla, o un Java distinto si usa un loader antiguo.
+// cambia la instalación activa.
+//
+// Un campo de Java vacío significa "automático": el proceso principal usa (y
+// descarga si hace falta) el Java oficial que corresponde a cada versión de
+// Minecraft. Por eso ya no se rellena solo con el Java detectado en el
+// sistema; "Detectar" y "Buscar..." siguen ahí para elegir uno a mano.
+function updateJavaHint() {
+    javaHint.innerText = javaPathInput.value.trim() ? '' : t('main.java.autoHint');
+}
+
+javaPathInput.addEventListener('input', updateJavaHint);
+
 async function applyTargetSettings(modpackId) {
     const settings = await window.electronAPI.getTargetSettings(modpackId);
 
-    if (settings && settings.javaPath) {
-        javaPathInput.value = settings.javaPath;
-    } else {
-        javaPathInput.value = '';
-        await runAutoDetect(true);
-    }
+    javaPathInput.value = (settings && settings.javaPath) || '';
+    updateJavaHint();
 
     if (settings && settings.memory && settings.memory.max) {
         const gb = parseInt(settings.memory.max, 10);
@@ -37,7 +43,25 @@ async function applyTargetSettings(modpackId) {
 
     customJvmArgsInput.value = (settings && settings.customArgs) || '';
     updatePlaytimeLabel(modpackId);
+    refreshRecommendedMemory(modpackId);
 }
+
+// RAM sugerida para la instalación activa (según sus mods y la RAM del
+// sistema); se enseña bajo el slider salvo que haya un aviso más importante.
+let recommendedMemoryGb = null;
+
+async function refreshRecommendedMemory(modpackId) {
+    try {
+        recommendedMemoryGb = (await window.electronAPI.getRecommendedMemory(modpackId)).gb;
+    } catch (err) {
+        recommendedMemoryGb = null;
+    }
+    updateRamHint();
+}
+
+hideWhilePlayingCheckbox.addEventListener('change', () => {
+    window.electronAPI.setHideWhilePlaying(hideWhilePlayingCheckbox.checked);
+});
 
 // --- Horas jugadas ---
 
@@ -54,7 +78,7 @@ async function updatePlaytimeLabel(modpackId) {
     playtimeLabel.innerText = formatPlaytime(minutes);
 }
 
-detectBtn.addEventListener('click', () => runAutoDetect(false));
+detectBtn.addEventListener('click', () => runAutoDetect());
 
 browseBtn.addEventListener('click', async () => {
     const selected = await window.electronAPI.selectJavaPath();
@@ -77,15 +101,16 @@ window.electronAPI.getSystemMemory().then((bytes) => {
 });
 
 function updateRamHint() {
-    if (!systemRamGb) return;
     const selected = parseInt(ramSlider.value, 10);
-    if (selected > systemRamGb) {
+    if (systemRamGb && selected > systemRamGb) {
         ramHint.innerText = t('main.ram.tooMuch', { total: systemRamGb });
         ramHint.classList.add('hint-warning');
-    } else {
-        ramHint.innerText = '';
-        ramHint.classList.remove('hint-warning');
+        return;
     }
+    ramHint.classList.remove('hint-warning');
+    ramHint.innerText = recommendedMemoryGb && selected !== recommendedMemoryGb
+        ? t('main.ram.recommended', { gb: recommendedMemoryGb })
+        : '';
 }
 
 ramSlider.addEventListener('input', () => {

@@ -632,6 +632,17 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 .toast.error { background: var(--danger); }
 .toast.info { background: #2e3d4d; }
 .toast.warning { background: #8a5a12; }
+.toast-action {
+    display: block;
+    width: auto;
+    margin-top: 8px;
+    padding: 4px 10px;
+    font-size: 12px;
+    background: #ffffff26;
+    color: white;
+    border-radius: 6px;
+}
+.toast-action:hover { background: #ffffff40; }
 
 .hint-warning { color: #e8a33d; }
 @keyframes toast-in {
@@ -712,6 +723,8 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
 }
 .badge-forge { background: #6a3a1a; color: #ffb877; }
 .badge-fabric { background: #1a3a5c; color: #86c5ff; }
+.badge-neoforge { background: #5c2a1a; color: #ffa27a; }
+.badge-quilt { background: #3d1f5c; color: #d2a8ff; }
 .active-modpack-row {
     display: flex;
     align-items: center;
@@ -882,7 +895,8 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     line-height: 1;
 }
 .mod-item-remove:hover { background: var(--surface-hover); }
-.mod-item-update {
+.mod-item-update,
+.mod-item-join {
     width: auto;
     background: none;
     color: var(--accent);
@@ -891,7 +905,8 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     line-height: 1;
     border-radius: 6px;
 }
-.mod-item-update:hover { background: var(--surface-hover); }
+.mod-item-update:hover,
+.mod-item-join:hover { background: var(--surface-hover); }
 .mod-item-update:disabled { opacity: 0.5; }
 .mod-item-badge {
     font-size: 10px;
@@ -914,6 +929,17 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     white-space: nowrap;
 }
 .mod-item-optional-toggle input { margin: 0; width: auto; }
+.setting-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: 400;
+    cursor: pointer;
+}
+.setting-toggle input { margin: 0; width: auto; }
+.vanilla-version-select { margin-top: 8px; max-width: 260px; }
 
 .invite-result {
     margin-top: 10px;
