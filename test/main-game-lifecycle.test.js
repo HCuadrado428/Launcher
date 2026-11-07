@@ -281,6 +281,19 @@ test('con "Ocultar el launcher mientras juegas", la ventana se oculta y vuelve a
     await ipcHandlers.get('set-hide-while-playing')({}, false);
 });
 
+test('con una versión vanilla elegida se lanza esa, sin preguntar a Mojang', async () => {
+    assert.equal(await ipcHandlers.get('set-vanilla-version')({}, '1.16.5'), '1.16.5');
+    fakeGame.startImpl = async () => { throw new Error('parar aquí'); };
+    launch(undefined, { server: 'play.example.com' });
+    await waitFor(() => fakeGame.lastOptions !== null, 'llamada a startMinecraft');
+    assert.equal(fakeGame.lastOptions.version, '1.16.5');
+    // Antes de 1.20 no hay quickPlay: se usa --server.
+    assert.deepEqual(fakeGame.lastOptions.server, { ip: 'play.example.com' });
+    assert.ok(!statusTypes().includes('version-fallback-warning'));
+    await waitFor(() => statusTypes().includes('error'), 'fin del lanzamiento');
+    assert.equal(await ipcHandlers.get('set-vanilla-version')({}, '../../x'), 'latest', 'valores raros vuelven a "latest"');
+});
+
 test('una ruta de Java que no es java/javaw no se ejecuta', async () => {
     launch('C:\\Windows\\System32\\cmd.exe');
     await waitFor(() => statusTypes().includes('error'), 'estado error');

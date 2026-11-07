@@ -10,15 +10,36 @@ async function updateActiveModpackLabel(activeModpack) {
                 : ` · ${loaderName}`;
         }
         activeModpackLabel.innerText = t('label.modpackActive', { name: activeModpack.name, version: activeModpack.mc_version }) + loaderSuffix;
+        vanillaVersionSelect.style.display = 'none';
     } else {
         activeModpackLabel.innerText = t('label.vanillaChecking');
-        window.electronAPI.getLatestVersion().then((version) => {
-            if (!document.getElementById('mainScreen').dataset.modpackActive) {
-                activeModpackLabel.innerText = t('label.vanillaVersion', { version });
-            }
-        });
+        const [latest, cfg] = await Promise.all([window.electronAPI.getLatestVersion(), window.electronAPI.getConfig()]);
+        if (document.getElementById('mainScreen').dataset.modpackActive) return;
+        const chosen = (cfg && cfg.vanillaVersion) || 'latest';
+        activeModpackLabel.innerText = chosen === 'latest'
+            ? t('label.vanillaVersion', { version: latest })
+            : t('label.vanillaFixed', { version: chosen });
+        await fillVanillaVersionSelect(latest, chosen);
     }
 }
+
+// Selector de versión para vanilla: "Última release" (por defecto) o
+// cualquier release concreta de la lista de Mojang.
+async function fillVanillaVersionSelect(latest, chosen) {
+    const versions = await ensureReleaseVersionsLoaded();
+    const options = [`<option value="latest">${escapeHtml(t('label.vanillaLatestOption', { version: latest }))}</option>`]
+        .concat(versions.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`));
+    // Si la versión guardada ya no aparece (sin conexión), se mantiene igual.
+    if (chosen !== 'latest' && !versions.includes(chosen)) options.push(`<option value="${escapeHtml(chosen)}">${escapeHtml(chosen)}</option>`);
+    vanillaVersionSelect.innerHTML = options.join('');
+    vanillaVersionSelect.value = chosen;
+    vanillaVersionSelect.style.display = '';
+}
+
+vanillaVersionSelect.addEventListener('change', async () => {
+    await window.electronAPI.setVanillaVersion(vanillaVersionSelect.value);
+    updateActiveModpackLabel(null);
+});
 
 // Carga inicial del panel de modpacks: se llama una vez justo después de
 // iniciar sesión (o al arrancar si ya había una sesión guardada), no cada

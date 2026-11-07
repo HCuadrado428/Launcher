@@ -68,6 +68,7 @@ const progressLabel = document.getElementById('progressLabel');
 const toastWrap = document.getElementById('toastWrap');
 
 const activeModpackLabel = document.getElementById('activeModpackLabel');
+const vanillaVersionSelect = document.getElementById('vanillaVersionSelect');
 const playtimeLabel = document.getElementById('playtimeLabel');
 const useVanillaBtn = document.getElementById('useVanillaBtn');
 

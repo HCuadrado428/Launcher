@@ -939,6 +939,7 @@ progress { display: none; } /* ya no se usa, sustituido por .progress-track */
     cursor: pointer;
 }
 .setting-toggle input { margin: 0; width: auto; }
+.vanilla-version-select { margin-top: 8px; max-width: 260px; }
 
 .invite-result {
     margin-top: 10px;

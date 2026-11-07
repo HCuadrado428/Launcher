@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Tema de color
     setColorTheme: (theme) => invoke('set-color-theme', theme),
     setHideWhilePlaying: (enabled) => invoke('set-hide-while-playing', enabled),
+    setVanillaVersion: (version) => invoke('set-vanilla-version', version),
     getRecommendedMemory: (modpackId) => invoke('get-recommended-memory', { modpackId }),
 
     // Horas jugadas

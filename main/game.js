@@ -200,6 +200,11 @@ async function prepareInstallation(activeModpack) {
         return { versionNumber: synced.mc_version, loaderVersionId: synced.loader_version_id, root: instanceDir(activeModpack.id) };
     }
 
+    // Versión vanilla fija elegida por el jugador (no hace falta preguntar a
+    // Mojang cuál es la última, y funciona sin conexión si ya está instalada).
+    const chosen = loadConfig().vanillaVersion;
+    if (chosen && chosen !== 'latest') return { versionNumber: chosen, loaderVersionId: null, root: VANILLA_ROOT };
+
     const resolved = await getMinecraftVersionToLaunch();
     if (resolved.fallback) {
         const key = getInstalledVanillaVersions().length ? 'sys.game.versionFallbackInstalled' : 'sys.game.versionFallback';

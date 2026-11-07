@@ -167,6 +167,14 @@ function registerAccountsIpc() {
 
     ipcMain.handle('set-language', (event, lang) => saveConfig({ language: SUPPORTED_LANGUAGES.includes(lang) ? lang : 'es' }));
     ipcMain.handle('set-color-theme', (event, theme) => saveConfig({ colorTheme: theme }));
+    // Versión de Minecraft para vanilla: "latest" (la última release, como
+    // siempre) o un id de versión concreto de la lista de Mojang.
+    ipcMain.handle('set-vanilla-version', (event, version) => {
+        const value = typeof version === 'string' && /^[A-Za-z0-9._-]{1,32}$/.test(version) ? version : 'latest';
+        saveConfig({ vanillaVersion: value });
+        return value;
+    });
+
     ipcMain.handle('set-hide-while-playing', (event, enabled) => saveConfig({ hideWhilePlaying: Boolean(enabled) }));
 
     // RAM sugerida para la instalación: según los mods que tiene la
