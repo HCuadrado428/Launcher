@@ -1,4 +1,5 @@
 const { ipcMain, dialog, nativeImage, shell } = require('electron');
+const { modrinthProjectUrl } = require('../gameOptions');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -134,6 +135,14 @@ function registerFilesIpc() {
         const fileCount = await addDirToZip(zipfile, savesDir, 'saves');
         await writeZip(zipfile, result.filePath);
         return { cancelled: false, filePath: result.filePath, fileCount };
+    });
+
+    // Abre la página de un proyecto de Modrinth en el navegador. La URL se
+    // construye aquí a partir de un slug validado: el renderer nunca puede
+    // pedir que se abra una URL cualquiera.
+    ipcMain.handle('open-modrinth-project', (event, { projectType, slug } = {}) => {
+        const url = modrinthProjectUrl(projectType, slug);
+        if (url) shell.openExternal(url);
     });
 
     // --- Servidores favoritos (solo locales, no pasan por el backend) ---

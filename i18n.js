@@ -303,6 +303,7 @@ const I18N = {
         'modal.modrinth.placeholder': 'Buscar mods...',
         'modal.modrinth.search': 'Buscar',
         'modal.modrinth.add': 'Añadir',
+        'modal.modrinth.openPage': 'Ver en Modrinth',
         'modal.modrinth.downloads': 'descargas',
         'modal.modrinth.empty': 'Sin resultados.',
 
@@ -685,6 +686,7 @@ const I18N = {
         'modal.modrinth.placeholder': 'Search mods...',
         'modal.modrinth.search': 'Search',
         'modal.modrinth.add': 'Add',
+        'modal.modrinth.openPage': 'View on Modrinth',
         'modal.modrinth.downloads': 'downloads',
         'modal.modrinth.empty': 'No results.',
 
@@ -1067,6 +1069,7 @@ const I18N = {
         'modal.modrinth.placeholder': 'Rechercher des mods...',
         'modal.modrinth.search': 'Rechercher',
         'modal.modrinth.add': 'Ajouter',
+        'modal.modrinth.openPage': 'Voir sur Modrinth',
         'modal.modrinth.downloads': 'téléchargements',
         'modal.modrinth.empty': 'Aucun résultat.',
 
@@ -1449,6 +1452,7 @@ const I18N = {
         'modal.modrinth.placeholder': 'Mods suchen...',
         'modal.modrinth.search': 'Suchen',
         'modal.modrinth.add': 'Hinzufügen',
+        'modal.modrinth.openPage': 'Auf Modrinth ansehen',
         'modal.modrinth.downloads': 'Downloads',
         'modal.modrinth.empty': 'Keine Ergebnisse.',
 
@@ -1831,6 +1835,7 @@ const I18N = {
         'modal.modrinth.placeholder': 'Buscar mods...',
         'modal.modrinth.search': 'Buscar',
         'modal.modrinth.add': 'Adicionar',
+        'modal.modrinth.openPage': 'Ver no Modrinth',
         'modal.modrinth.downloads': 'downloads',
         'modal.modrinth.empty': 'Sem resultados.',
 

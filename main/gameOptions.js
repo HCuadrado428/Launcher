@@ -74,4 +74,12 @@ function parseJvmArgs(text) {
     return args;
 }
 
-module.exports = { sanitizeMemory, normalizeServerAddress, quickPlayForServer, parseJvmArgs };
+// URL de la página de un proyecto de Modrinth, o null si el tipo o el slug
+// no son válidos.
+function modrinthProjectUrl(projectType, slug) {
+    if (!['mod', 'resourcepack', 'modpack', 'shader'].includes(projectType)) return null;
+    if (typeof slug !== 'string' || !/^[A-Za-z0-9!@$()`.+,"\-']{1,64}$/.test(slug) || /^\.+$/.test(slug)) return null;
+    return `https://modrinth.com/${projectType}/${encodeURIComponent(slug)}`;
+}
+
+module.exports = { sanitizeMemory, normalizeServerAddress, quickPlayForServer, parseJvmArgs, modrinthProjectUrl };

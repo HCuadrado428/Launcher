@@ -11,6 +11,7 @@ function modrinthResultHtml(hit) {
                 <div class="modrinth-result-title">${escapeHtml(hit.title)}</div>
                 <div class="modrinth-result-meta">${escapeHtml(hit.author)} · ${hit.downloads.toLocaleString()} ${t('modal.modrinth.downloads')}</div>
             </div>
+            <button class="mod-item-update modrinth-open-btn" data-slug="${escapeHtml(hit.slug)}" data-project-type="${escapeHtml(hit.project_type)}" title="${t('modal.modrinth.openPage')}">↗</button>
             <button class="secondary modrinth-add-btn" data-project-id="${escapeHtml(hit.project_id)}">${t('modal.modrinth.add')}</button>
         </div>
     `;
@@ -68,6 +69,11 @@ async function addDependencies(modpackId, projectIds) {
 }
 
 modrinthResults.addEventListener('click', async (e) => {
+    const openBtn = e.target.closest('.modrinth-open-btn');
+    if (openBtn) {
+        window.electronAPI.openModrinthProject(openBtn.dataset.projectType, openBtn.dataset.slug);
+        return;
+    }
     const btn = e.target.closest('.modrinth-add-btn');
     if (!btn || btn.disabled) return;
     const originalText = btn.innerText;

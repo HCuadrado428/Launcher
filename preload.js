@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     checkModpackHealth: (id) => invoke('modpacks-check-health', { id }),
     addModToModpack: (id, type) => invoke('modpacks-add-mod', { id, type }),
     removeModFromModpack: (id, modId) => invoke('modpacks-remove-mod', { id, modId }),
+    openModrinthProject: (projectType, slug) => invoke('open-modrinth-project', { projectType, slug }),
     searchModrinth: (query, mcVersion, loader, projectType) => invoke('search-modrinth', { query, mcVersion, loader, projectType }),
     addModFromModrinth: (id, projectId, mcVersion, loader, projectType) => invoke('add-mod-from-modrinth', { id, projectId, mcVersion, loader, projectType }),
     scanLocalModpacks: () => invoke('scan-local-modpacks'),

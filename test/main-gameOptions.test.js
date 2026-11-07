@@ -2,7 +2,7 @@
 // comandos del juego: memoria y servidor al que entrar directamente.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { sanitizeMemory, normalizeServerAddress, quickPlayForServer, parseJvmArgs } = require('../main/gameOptions');
+const { sanitizeMemory, normalizeServerAddress, quickPlayForServer, parseJvmArgs, modrinthProjectUrl } = require('../main/gameOptions');
 
 test('sanitizeMemory acepta "4G"/"2048M" y usa los valores por defecto para lo demás', () => {
     assert.deepEqual(sanitizeMemory({ max: '8G', min: '2048M' }), { max: '8G', min: '2048M' });
@@ -33,4 +33,12 @@ test('parseJvmArgs respeta comillas y rutas de Windows', () => {
     assert.deepEqual(parseJvmArgs('-Dvacio=""'), ['-Dvacio=']);
     assert.deepEqual(parseJvmArgs(''), []);
     assert.deepEqual(parseJvmArgs(null), []);
+});
+
+test('modrinthProjectUrl solo construye URLs de modrinth.com con un slug válido', () => {
+    assert.equal(modrinthProjectUrl('mod', 'sodium'), 'https://modrinth.com/mod/sodium');
+    assert.equal(modrinthProjectUrl('resourcepack', 'faithful-32x'), 'https://modrinth.com/resourcepack/faithful-32x');
+    for (const [type, slug] of [['mod', '../../evil'], ['mod', 'a/b'], ['mod', ''], ['mod', '..'], ['plugin', 'x'], ['mod', null], ['mod', 'https://evil.com']]) {
+        assert.equal(modrinthProjectUrl(type, slug), null, `debería rechazar ${type}/${slug}`);
+    }
 });
