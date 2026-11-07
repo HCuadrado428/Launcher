@@ -9,7 +9,7 @@ const { getInstalledVanillaVersions, getMinecraftVersionToLaunch } = require('./
 const { syncModpack } = require('./modpackSync');
 const { resolveJavaForVersion } = require('./javaRuntime');
 const { targetKeyFor, saveTargetSettings } = require('./targetSettings');
-const { sanitizeMemory, quickPlayForServer } = require('./gameOptions');
+const { sanitizeMemory, quickPlayForServer, parseJvmArgs } = require('./gameOptions');
 const { analyzeCrashLog } = require('./crashAnalysis');
 const { ensureFreshMinecraftAuth } = require('./msAuth');
 const { Auth } = require('./msmcLoader');
@@ -282,7 +282,7 @@ async function launchGame({ javaPath, memory, customArgs, server }) {
         versionId,
         javaPath: finalJavaPath,
         memory: finalMemory,
-        customArgs: finalCustomArgs ? finalCustomArgs.split(/\s+/).filter(Boolean) : [],
+        customArgs: parseJvmArgs(finalCustomArgs),
         quickPlay: server ? quickPlayForServer(server, versionNumber) : null,
         credentials: await credentialsFor(account)
     });

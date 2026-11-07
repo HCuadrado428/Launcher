@@ -36,4 +36,42 @@ function quickPlayForServer(address, mcVersion) {
     return { type: supportsQuickPlay ? 'multiplayer' : 'legacy', identifier };
 }
 
-module.exports = { sanitizeMemory, normalizeServerAddress, quickPlayForServer };
+// Parte los argumentos JVM extra como lo haría una shell, respetando
+// comillas: -Dmi.ruta="C:\Mis Juegos" es UN argumento. Antes se partían
+// por espacios y ese tipo de argumento llegaba roto a Java. Las comillas
+// se quitan (Java no las espera) y una barra invertida solo escapa a una
+// comilla, para no estropear rutas de Windows.
+function parseJvmArgs(text) {
+    const args = [];
+    let current = '';
+    let quote = null;
+    let hasToken = false;
+    const input = typeof text === 'string' ? text : '';
+    for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
+        if (quote) {
+            if (ch === '\\' && input[i + 1] === quote) {
+                current += quote;
+                i++;
+            } else if (ch === quote) {
+                quote = null;
+            } else {
+                current += ch;
+            }
+        } else if (ch === '"' || ch === "'") {
+            quote = ch;
+            hasToken = true;
+        } else if (/\s/.test(ch)) {
+            if (hasToken) args.push(current);
+            current = '';
+            hasToken = false;
+        } else {
+            current += ch;
+            hasToken = true;
+        }
+    }
+    if (hasToken) args.push(current);
+    return args;
+}
+
+module.exports = { sanitizeMemory, normalizeServerAddress, quickPlayForServer, parseJvmArgs };
