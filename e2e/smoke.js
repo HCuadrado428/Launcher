@@ -23,17 +23,19 @@ before(async () => {
         args: [repoRoot, '--no-sandbox', '--disable-gpu'],
         cwd: repoRoot,
         env: { ...process.env, XDG_CONFIG_HOME: configHome, LANG: 'es_ES.UTF-8' },
-        timeout: 60000
+        // El primer arranque de Electron tras instalarlo (siempre, en la CI)
+        // es bastante más lento que los siguientes: márgenes generosos.
+        timeout: 120000
     });
-    for (let i = 0; i < 150 && !win; i++) {
+    for (let i = 0; i < 450 && !win; i++) {
         win = app.windows().find((w) => w.url().endsWith('index.html'));
         if (!win) await new Promise((resolve) => setTimeout(resolve, 200));
     }
     assert.ok(win, 'no se abrió la ventana principal');
     win.on('pageerror', (err) => consoleErrors.push(err.message));
     await win.waitForLoadState('load');
-    await win.waitForSelector('#loginScreen.active, #mainScreen.active');
-});
+    await win.waitForSelector('#loginScreen.active, #mainScreen.active', { timeout: 90000 });
+}, { timeout: 240000 });
 
 after(async () => {
     if (app) await app.close();
