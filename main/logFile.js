@@ -21,7 +21,10 @@ function installFileLogger(dir, { maxBytes = 5 * 1024 * 1024 } = {}) {
     const filePath = path.join(dir, 'launcher.log');
     const oldPath = path.join(dir, 'launcher.old.log');
 
-    let stream = null;
+    // Se escribe de forma síncrona sobre un descriptor: así el archivo se
+    // puede cerrar antes de renombrarlo al rotar (en Windows no se puede
+    // renombrar un archivo abierto, y un stream lo cerraría más tarde).
+    let fd = null;
     let bytesWritten = 0;
 
     const open = () => {
@@ -30,15 +33,21 @@ function installFileLogger(dir, { maxBytes = 5 * 1024 * 1024 } = {}) {
         } catch (err) {
             bytesWritten = 0;
         }
-        // Se abre de forma síncrona para que el archivo exista ya al
-        // rotar (createWriteStream solo lo crearía más tarde).
-        stream = fs.createWriteStream(filePath, { fd: fs.openSync(filePath, 'a') });
-        // Un error de disco al escribir el log nunca debe tumbar la app.
-        stream.on('error', () => {});
+        try {
+            fd = fs.openSync(filePath, 'a');
+        } catch (err) {
+            fd = null; // sin log en disco, pero la app sigue
+        }
+    };
+
+    const closeFd = () => {
+        if (fd === null) return;
+        try { fs.closeSync(fd); } catch (err) { /* ya cerrado */ }
+        fd = null;
     };
 
     const rotate = () => {
-        stream.end();
+        closeFd();
         try { fs.renameSync(filePath, oldPath); } catch (err) { /* sin rotar: se sigue escribiendo */ }
         open();
     };
@@ -55,7 +64,9 @@ function installFileLogger(dir, { maxBytes = 5 * 1024 * 1024 } = {}) {
         const text = args.map(format).join(' ');
         if (text.startsWith('[GAME]')) return;
         const line = `${new Date().toISOString()} ${level} ${redactSecrets(text)}\n`;
-        stream.write(line);
+        if (fd === null) return;
+        // Un error de disco al escribir el log nunca debe tumbar la app.
+        try { fs.writeSync(fd, line); } catch (err) { return; }
         bytesWritten += Buffer.byteLength(line);
         if (bytesWritten > maxBytes) rotate();
     };
@@ -81,7 +92,8 @@ function installFileLogger(dir, { maxBytes = 5 * 1024 * 1024 } = {}) {
             Object.assign(console, originals);
             process.off('uncaughtExceptionMonitor', onException);
             process.off('unhandledRejection', onRejection);
-            return new Promise((resolve) => stream.end(resolve));
+            closeFd();
+            return Promise.resolve();
         }
     };
 }
