@@ -99,6 +99,16 @@ async function setupTray() {
 // No se descarga automáticamente al detectar una versión nueva: se avisa al
 // renderer para que muestre un popup y el usuario decida. Si elige "más
 // tarde", se le volverá a preguntar la próxima vez que abra el launcher.
+// Además de al abrir, se vuelve a comprobar cada UPDATE_CHECK_INTERVAL_MS:
+// el launcher se queda en la bandeja y puede pasar días abierto. El aviso de
+// una versión concreta solo sale una vez por sesión (si el jugador dijo "más
+// tarde", no se le vuelve a preguntar cada 6 horas), salvo que la busque a
+// mano con el botón.
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let announcedUpdateVersion = null;
+let manualUpdateCheck = false;
+let updateDownloadStarted = false;
+
 function setupAutoUpdates() {
     if (!app.isPackaged) return;
 
@@ -117,9 +127,16 @@ function setupAutoUpdates() {
         } else if (Array.isArray(info.releaseNotes)) {
             releaseNotes = info.releaseNotes.map((n) => n.note || '').join('\n\n');
         }
+        const isManual = manualUpdateCheck;
+        manualUpdateCheck = false;
+        if (updateDownloadStarted || (!isManual && announcedUpdateVersion === info.version)) return;
+        announcedUpdateVersion = info.version;
         send('available', { version: info.version, releaseNotes: releaseNotes.replace(/<[^>]+>/g, '').trim() });
     });
-    autoUpdater.on('update-not-available', () => send('not-available'));
+    autoUpdater.on('update-not-available', () => {
+        manualUpdateCheck = false;
+        send('not-available');
+    });
     autoUpdater.on('download-progress', (progress) => send('downloading', { percent: Math.round(progress.percent) }));
     autoUpdater.on('update-downloaded', (info) => {
         send('downloaded', { version: info.version });
@@ -128,15 +145,25 @@ function setupAutoUpdates() {
     autoUpdater.on('error', (err) => {
         const message = err && err.message ? err.message : String(err);
         console.warn('[WARN] Error comprobando actualizaciones:', message);
+        // Si falló la descarga, que se pueda volver a intentar más tarde.
+        manualUpdateCheck = false;
+        updateDownloadStarted = false;
         send('error', { message });
     });
 
-    autoUpdater.checkForUpdates().catch((err) => {
+    const checkInBackground = () => autoUpdater.checkForUpdates().catch((err) => {
         console.warn('[WARN] No se pudo comprobar actualizaciones:', err && err.message ? err.message : err);
     });
+    checkInBackground();
+    setInterval(() => {
+        if (!updateDownloadStarted) checkInBackground();
+    }, UPDATE_CHECK_INTERVAL_MS).unref();
 }
 
-ipcMain.on('download-update', () => autoUpdater.downloadUpdate());
+ipcMain.on('download-update', () => {
+    updateDownloadStarted = true;
+    autoUpdater.downloadUpdate();
+});
 ipcMain.on('restart-and-update', () => autoUpdater.quitAndInstall());
 ipcMain.handle('get-app-version', () => app.getVersion());
 
@@ -145,6 +172,7 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('check-for-updates', async () => {
     if (!app.isPackaged) return { ok: false, message: tm('sys.updates.devOnly') };
     try {
+        manualUpdateCheck = true;
         await autoUpdater.checkForUpdates();
         return { ok: true };
     } catch (err) {
